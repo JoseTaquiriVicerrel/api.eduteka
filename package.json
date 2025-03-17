@@ -1,0 +1,31 @@
+{
+  "name": "api_eduteka",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "imports": {
+    "#Utils/*": "./src/utils/*",
+    "#Config/*": "./src/config/*",
+    "#Routes/*": "./src/routes/*",
+    "#Views/*": "./src/views/*",
+    "#Schemas/*": "./src/schemas/*",
+    "#Models/*": "./src/models/*",
+    "#Controllers/*": "./src/controllers/*",
+    "#Libs/*": "./src/libs/*"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsdom": "^26.0.0",
+    "mongoose": "^8.9.5",
+    "nodemon": "^3.1.9"
+  }
+}
