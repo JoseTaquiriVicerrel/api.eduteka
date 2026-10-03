@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><title>Nuevo pedido por verificar</title></head>
+<body style="font-family:Arial,Helvetica,sans-serif;color:#1f2933;padding:24px;">
+  <h2 style="margin:0 0 12px;">Nuevo pedido por verificar</h2>
+  <p>Cliente: {{email}}</p>
+  <p>Total esperado: <strong>S/ {{total}}</strong> ({{payment_method}})</p>
+  <ul>
+  {{#each items}}
+    <li>{{name}}{{#if areas}} — áreas: {{areas}}{{/if}}</li>
+  {{/each}}
+  </ul>
+  <p>Estado: <strong>pendiente de verificación</strong>. Revisa el comprobante en el panel de pedidos.</p>
+  <p style="color:#616e7c;font-size:12px;">Pedido {{order_id}} (registrado desde la app)</p>
+</body>
+</html>

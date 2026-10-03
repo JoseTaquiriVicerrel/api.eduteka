@@ -1,0 +1,38 @@
+{
+  "exclude": [
+    "node_modules"
+  ],
+  "compilerOptions": {
+    "module": "Node16",
+    "baseUrl": "./",
+    "paths": {
+      "#Utils/*": [
+        "./src/utils/*"
+      ],
+      "#Config/*": [
+        "./src/config/*"
+      ],
+      "#Routes/*": [
+        "./src/routes/*"
+      ],
+      "#Views/*": [
+        "./src/views/*"
+      ],
+      "#Schemas/*": [
+        "./src/schemas/*"
+      ],
+      "#Models/*": [
+        "./src/models/*"
+      ],
+      "#Controllers/*": [
+        "./src/controllers/*"
+      ],
+      "#Libs/*": [
+        "./src/libs/*"
+      ],
+      "#Middlewares/*": ["./src/middlewares/*"],
+      "#Modules/*": ["./src/modules/*"],
+      "#Serializers/*": ["./src/serializers/*"],
+    }
+  }
+}

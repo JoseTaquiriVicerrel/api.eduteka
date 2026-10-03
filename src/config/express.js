@@ -4,48 +4,29 @@ import cookieParser from "cookie-parser";
 import bodyParser from "body-parser";
 import cors from 'cors';
 import questionModel from "#Schemas/questions_schema.js";
-import htmlToJson from "#Libs/question_json.js";
-
+import authRouter from "#Routes/auth.routes.js";
+import questionRouter from "#Routes/question.routes.js";
+import exphbs from 'express-handlebars';
+import path from "path";
+import { fileURLToPath } from 'url';
+import { dirname, join, extname } from 'path';
+import examRouter from "#Routes/exam.routes.js";
 // import crypto from "crypto";
 // import path from "path";
 // import { dirname, join, extname } from 'path';
 // import homeRouter from "#Routes/home.routes.js";
-// import { fileURLToPath } from 'url';
 // import exphbs from 'express-handlebars';
 // import { jwtVerify } from "jose";
 // import morgan from "morgan";
 // import multer from "multer";
-// import questionRouter from "#Routes/question.routes.js";
-// import examRouter from "#Routes/exam.routes.js";
-// import institutionRouter from "#Routes/institution.routes.js";
-// import simulacrumRouter from "#Routes/simulacrum.routes.js";
-// import authRouter from "#Routes/auth.routes.js";
-// import adminExamRouter from "#Routes/admin/admin.exam.routes.js";
 // import { check_session } from "#Libs/auth.js";
 // import { getImage } from "#Libs/cloudinary.js";
-// import userRouter from "#Routes/user.routes.js";
-// import adminUserRouter from "#Routes/admin/admin.user.routes.js";
-// import adminHomeRouter from "#Routes/admin/admin.home.routes.js";
-// import adminTemplateRouter from "#Routes/admin/admin.template.routes.js";
-// import adminMaterialRouter from "#Routes/material.routes.js";
-// import adminSimulacrumRouter from "#Routes/admin/admin.simulacrum.routes.js";
-// import adminQuestionRouter from "#Routes/admin/admin.question.routes.js";
-// import adminInstitutionRouter from "#Routes/admin/admin.institution.routes.js";
-// import storeRouter from "#Routes/store.routes.js";
-// import adminProductRoute from "#Routes/admin/admin.product.routes.js";
-// import productRouter from "#Routes/products.routes.js";
-// import textsRouter from "#Routes/block.routes.js";
-// import adminBlockRouter from "#Routes/admin/admin.block.routes.js";
-// import adminProspectRouter from "#Routes/admin/admin.prospect.routes.js";
-// import practiceRouter from "#Routes/practice.routes.js";
-// import adminUsersAnswersRouter from "#Routes/admin/admin.user-answers.routes.js";
 
-// const __filename = fileURLToPath(import.meta.url);
-// const __dirname = path.dirname(__filename);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const expressApp = express();
 
-// expressApp.set('views', path.join(__dirname, '../views'));
-expressApp.use(cors());
+// expressApp.use(cors());
 
 expressApp.use(express.json());
 
@@ -60,44 +41,21 @@ expressApp.use(express.json());
 //     } 
 //   })
 // )
-// expressApp.engine('.hbs', exphbs.create({
-//   defaultLayout: 'main',
-//   extname: '.hbs',
-//   layoutsDir: path.join(expressApp.get('views'), 'layouts'),
-//   partialsDir: path.join(expressApp.get('views'), 'partials'),
-//   helpers: {
-//     json(arg1) {
-//       return JSON.stringify(arg1)
-//     },
-//     questionOption(arg1, arg2) {
-//       return '<strong>' + arg1 + ')</strong><p>' + arg2.replace('<p></p>', '').replaceAll('<p>', '').replaceAll('</p>', '') + '</p>';
-//     },
-//     ifEquals(arg1, arg2, options) {
-//       return (arg1 == arg2) ? options.fn(this) : options.inverse(this);
-//     },
-//     cardQuestionAds(arg1,options) {
-//       return ( (parseInt(arg1 + 1 ) % 6) === 0) ? options.fn(this) : options.inverse(this);
-//     },
-//     mode_production(options) {
-//       return (process.env.MODE === "PRODUCTION") ? options.fn(this) : options.inverse(this);
-//     },
-//     count(array) {
-//       return array.length;
-//     },
-//     ifContains(arg1, arg2, options) {
-//       return (typeof arg1 !== "undefined" && arg1.indexOf(arg2) > -1) ? options.fn(this) : options.inverse(this);
-//     },
-//     inc(value, options) {
-//       return parseInt(value) + 1;
-//     }
-//   }
-// }).engine
-// );
 
 // expressApp.set('view engine', '.hbs')
 const CURRENT_DIR = "";
 const MIMETYPES = ["image/png", "image/jpeg", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]
 const MAX_FILE_SIZE = 10 * 1000 * 1000;
+
+expressApp.set('views', path.join(__dirname,'../views'));
+expressApp.engine('.hbs', exphbs.create({
+  defaultLayout: 'main',
+  extname: '.hbs',
+  layoutsDir: path.join(expressApp.get('views'), 'layouts'),
+  partialsDir: path.join(expressApp.get('views'), 'partials'),
+  helpers: { }
+}).engine
+);
 
 // const storage = multer.diskStorage({
 //   destination: (req, file, cb) => {
@@ -167,118 +125,31 @@ expressApp.locals.WEB_URL = process.env.MODE === "PRODUCTION" ? process.env.APP_
 
 // // TODO nidlewares, routes
 
-// // Routes Admin
+// Routes Admin
 // expressApp.use(adminExamRouter);
-// expressApp.use(adminUserRouter);
-// expressApp.use(adminHomeRouter);
-// expressApp.use(adminTemplateRouter);
-// expressApp.use(adminMaterialRouter);
-// expressApp.use(adminSimulacrumRouter);
-// expressApp.use(adminQuestionRouter);
-// expressApp.use(adminInstitutionRouter)
-// expressApp.use(adminProductRoute);
-// expressApp.use(adminProspectRouter);
-// expressApp.use(adminBlockRouter);
-// expressApp.use(adminUsersAnswersRouter);
 
-// // Routes
+// Routes
 
-// expressApp.use(homeRouter);
-// expressApp.use(textsRouter);
-// expressApp.use(questionRouter);
-// expressApp.use(institutionRouter);
-// expressApp.use(examRouter);
-// expressApp.use(simulacrumRouter);
-// expressApp.use(authRouter);
-// expressApp.use(userRouter);
-// expressApp.use(storeRouter);
-// expressApp.use(productRouter);
-// expressApp.use(practiceRouter);
+expressApp.use(authRouter);
+expressApp.use(examRouter);
+expressApp.use(questionRouter);
 
-// expressApp.use(function (req, res, next) {
-//   res.status(404);
+expressApp.use(function (req, res, next) {
+  res.status(404);
 
-//   // respond with html page
-//   if (req.accepts('html')) {
-//     res.render('error/404', { layout: false });
-//     return;
-//   }
-
-//   // respond with json
-//   if (req.accepts('json')) {
-//     res.json({ error: 'Not found' });
-//     return;
-//   }
-
-//   // default to plain-text. send()
-//   res.type('txt').send('Not found');
-
-// });
-expressApp.get('/', (req, res) => {
-  res.send('Hello World!');
-});
-
-expressApp.post('/preguntas/get-questions-related', async (req, res, next) => {
-
-  let questions = await questionModel.find({ area: 'Razonamiento Matemático' , verified: true, resolution: { $exists: true }}).limit(10).exec();
-
-  questions = questions.map(question => {
-    question["question_json"] = htmlToJson(question.question);
-    return question;
-  });
-
-  return res.json({
-    status: true,
-    questions: questions
-  });
-
-});
-expressApp.post('/examenes/fetch-all', async (req, res, next) => {
-
-  let exams = await examModel.find({}, {
-    _id: true,
-    title: true,
-    image_post: true,
-  }).limit(10).exec();
-
-  exams = exams.map(exam => {
-    return exam;
-  });
-
-  return res.json({
-    status: true,
-    exams: exams
-  });
-});
-
-expressApp.get('/areas', async (req, res) => {
-
-  let areas = await questionModel.aggregate(
-    [
-      {
-        $group: {
-          _id: "$area",
-          count: {
-            $sum: 1,
-          },
-        },
-        //order by count desc
-      },
-      {
-          $sort: {
-            count: -1,
-          },
-        }
-    ]
-  ).limit(5).exec();
-
-
-  return res.json({
-    status: true,
-    areas: areas
+  // respond with html page
+  if (req.accepts('html')) {
+    return res.render('error/404.hbs', { layout: false });
   }
-  );
 
-})
+  // respond with json
+  if (req.accepts('json')) {
+    return res.json({ message: 'Not found', error:"" });
+  }
+
+  // default to plain-text. send()
+  return res.type('txt').send('Not found');
+
+});
 
 export default expressApp;

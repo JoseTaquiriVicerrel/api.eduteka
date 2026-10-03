@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  {{#mode_production}}
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-66CRTRH74R"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-66CRTRH74R');
+  </script>
+  {{/mode_production}}
+
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="apple-touch-icon" sizes="57x57" href="/img/favicon/apple-icon-57x57.png">
+  <link rel="apple-touch-icon" sizes="60x60" href="/img/favicon/apple-icon-60x60.png">
+  <link rel="apple-touch-icon" sizes="72x72" href="/img/favicon/apple-icon-72x72.png">
+  <link rel="apple-touch-icon" sizes="76x76" href="/img/favicon/apple-icon-76x76.png">
+  <link rel="apple-touch-icon" sizes="114x114" href="/img/favicon/apple-icon-114x114.png">
+  <link rel="apple-touch-icon" sizes="120x120" href="/img/favicon/apple-icon-120x120.png">
+  <link rel="apple-touch-icon" sizes="144x144" href="/img/favicon/apple-icon-144x144.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="/img/favicon/apple-icon-152x152.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/img/favicon/apple-icon-180x180.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/img/favicon/android-icon-192x192.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="/img/favicon/favicon-96x96.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/img/favicon/favicon-16x16.png">
+  <link rel="manifest" href="/img/favicon/manifest.json">
+  <meta name="msapplication-TileColor" content="#ffffff">
+  <link rel="manifest" href="/img/favicon/manifest.json">
+  <meta name="msapplication-TileImage" content="/img/favicon/ms-icon-144x144.png">
+  <meta name="theme-color" content="#ffffff">
+
+  <title>404 | Eduteka</title>
+  {{!--
+  <link rel="stylesheet" href="/css/main.css"> --}}
+  <link rel="stylesheet" href="/css/login.css">
+  <link rel="stylesheet" href="/library/fontawesome/all.min.css">
+  <link rel="stylesheet" href="/library/notification/css/toast.min.css">
+  <link rel="stylesheet" href="/library/notiflix/notiflix.css">
+
+  <!--end::Fonts-->
+  <!--begin::Global Stylesheets Bundle(used by all pages)-->
+  <link href="/assets/css/style.bundle_old.css" rel="stylesheet" type="text/css" />
+  <link href="/assets/plugins/global/plugins.bundle.css" rel="stylesheet" type="text/css" />
+  <!--end::Global Stylesheets Bundle-->
+
+  <script src="/library/notiflix/notiflix.js"></script>
+  <script src="/library/notification/js/toast.js"></script>
+  <script src="/js/misc.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/js-cookie@3.0.1/dist/js.cookie.min.js" defer></script>
+
+</head>
+
+<body>
+  <div class="d-flex flex-column flex-column-fluid position-relative" style="background-color: #EAF9FC;">
+    <!--begin::Background-->
+    <div
+      class="bgi-size-contain bgi-position-x-end bgi-position-y-bottom bgi-no-repeat position-absolute top-0 start-0 w-100 h-100"
+      style="background-image: url(/assets/media/illustrations/404-hd.png);">
+    </div>
+    <div class="px-10 px-md-20 pt-10 pt-md-14 z-index-1">
+      <a href="/"><img alt="Logo" src="/images/logo_eduteka.png" class="h-75px"></a>
+    </div>
+    <div class="px-10 px-md-20 py-10 py-md-0 d-flex flex-column justify-content-md-center align-items-start flex-root w-md-700px z-index-1">
+      {{#if error_type}}
+        {{#ifEquals error_type 'examen-pdf'}}
+        <p class="display-6 fw-bold text-gray-800 mb-8"> Archivo PDF no encontrado </p>
+        <p class="fs-4"> Puedes adquirir el examen en formato PDF desde la página de la universidad. </p>
+        <p class="fs-4">Tambien puedes registrarte y recibir notificaciones de los examenes de la universidad.</p>
+        <div class="row gap-2">
+          <a href="/examenes/universidades" class="btn btn-primary fs-6 fw-bold py-4 px-6 me-auto"> Ver universidades</a>
+          <a href="/" class="btn btn-success fs-6 fw-bold py-4 px-6 me-auto"> Ir al inicio</a>
+        </div>
+        {{/ifEquals}}
+      {{else}}
+      <p class="display-6 fw-bold text-gray-800 mb-8"> Pagina no encontrada </p>
+      <p class="fs-6 mb-8"> Lo siento. el contenido que busca no existe. O se eliminó o escribió mal el enlace. </p>
+      <a href="/" class="btn btn-primary fs-6 fw-bold py-4 px-6 me-auto"> Ir al inicio</a>
+      {{#if message}}
+      <p class="fs-6 mb-8">{{message}}</p>
+      {{/if}}
+      {{/if}}
+    </div>
+  </div>
+</body>
+
+</html>

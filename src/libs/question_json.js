@@ -1,6 +1,6 @@
 import { JSDOM } from "jsdom";
 
-function htmlToJson(html) {
+const htmlToJson = (html)  => {
     const dom = new JSDOM(`<body>${html}</body>`); // Envolver en <body> para parsear
     const body = dom.window.document.body;
 
@@ -41,8 +41,17 @@ function htmlToJson(html) {
             }
 
             const item = { type: node.tagName.toLowerCase(), content: [] };
+
+            // console.log("childNodes", node.childNodes);
+
+            /*if (node.childNodes.length == 1) {
+                item = { type: node.tagName.toLowerCase(), content: "" };
+                item.content = node.childNodes[0].textContent;
+            } else {*/
             node.childNodes.forEach(child => {
+
                 const parsedChild = parseNode(child);
+                
                 if (parsedChild) {
                     if (Array.isArray(parsedChild)) {
                         item.content.push(...parsedChild);
@@ -51,6 +60,8 @@ function htmlToJson(html) {
                     }
                 }
             });
+            /*}*/
+
 
             return item.content.length ? item : null;
         }
@@ -70,17 +81,7 @@ function htmlToJson(html) {
         }
     });
 
-    return JSON.stringify(result, null, 2);
+    return result;
 }
 
-
-
-// Ejemplo de uso
-// const html = `
-//     <p>En la gráfica, se muestra la recta tangente \\[g(x) = 2x + m\\] a la parábola \\[f(x) = x^2 - 4x + 4\\], determina el valor de "m".</p>
-//     <p><img src="/images/questions/img_matematica_325d743c.png"></p>
-// `;
-
-// // console.log(htmlToJson(html));
-// console.log(htmlToJson2(html));
-export default { htmlToJson };
+export { htmlToJson };

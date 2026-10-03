@@ -1,17 +1,16 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
+import crypto from 'crypto';
 
-const { Schema } = mongoose;
-
-const commentSchema = new Schema({
-  _id: String,
+const commentSchema = new mongoose.Schema({
+  _id: { type: String, default: () => crypto.randomUUID() },
   comment: String,
   question_id: { type: String, ref: 'Question' },
   user_id: { type: String, ref: 'User' },
   user: Object,
   verified: { type: Boolean, default: true },
-  created_at: { type: Date, default: Date.now },
+}, {
+    timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+    versionKey: false
 });
 
-const commentModel = mongoose.model('Comment', commentSchema)
-
-export default commentModel;
+export default commentSchema;

@@ -1,16 +1,17 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
+import crypto from 'crypto';
 
-const { Schema } = mongoose;
-
-const favoriteExamSchema = new Schema({
-  _id: String,
-  exam_id: String,
-  user_id: String,
+const favoriteExamSchema = new mongoose.Schema({
+  _id: { type: String, default: () => crypto.randomUUID() },
+  exam_id: { type: String, require: true },
+  user_id: { type: String, require: true },
   state: Boolean,
   user: Object,
-  created_at: { type: Date, default: Date.now },
+}, {
+    timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+    versionKey: false
 });
 
-const favoriteExamModel = mongoose.model('favoriteExam', favoriteExamSchema)
+favoriteExamSchema.index({ exam_id: 1, state: 1 });
 
-export default favoriteExamModel;
+export default favoriteExamSchema;

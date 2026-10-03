@@ -146,24 +146,24 @@ const sendMailNotification = async function ({ from, subject, email, template = 
 
     return new Promise((resolve, reject) => {
       const transporter = mailer.createTransport({
-          host: process.env.G_EMAIL_SMTP,
-          port: process.env.G_EMAIL_PORT,
-          secure: true,
-          auth: {
-            user: process.env.G_EMAIL,
-            pass: process.env.G_EMAIL_PASSWORD
-          }
-        });
+        host: process.env.G_EMAIL_SMTP,
+        port: process.env.G_EMAIL_PORT,
+        secure: true,
+        auth: {
+          user: process.env.G_EMAIL,
+          pass: process.env.G_EMAIL_PASSWORD
+        }
+      });
 
       const options = {
-            from: 'Eduteka <eduteka.noresponder@gmail.com>',
-            to: email,
-            subject,
-            html: htmlSend
-          };
+        from: 'Eduteka <eduteka.noresponder@gmail.com>',
+        to: email,
+        subject,
+        html: htmlSend
+      };
 
       transporter.sendMail(options, function (error, info) {
-        if (error) {
+        if ( error ) {
           console.log(error);
           resolve(false);
         } else {
@@ -171,6 +171,7 @@ const sendMailNotification = async function ({ from, subject, email, template = 
           resolve(true);
         }
       })
+
     })
   }
 }

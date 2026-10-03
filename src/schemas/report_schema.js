@@ -1,17 +1,15 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
+import crypto from 'crypto';
 
-const { Schema } = mongoose;
-
-const reportSchema = new Schema({
-  _id: String,
+const reportSchema = new mongoose.Schema({
+  _id: { type: String, default: () => crypto.randomUUID() },
   name: Number,
   data: Object,
   state: Boolean,
   aditional: String,
-  created_at: { type: Date, default: Date.now },
-  updated_at: { type: Date, default: Date.now }
+}, {
+    timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+    versionKey: false
 });
 
-const reportModel = mongoose.model("Report", reportSchema);
-
-export default reportModel;
+export default reportSchema;
