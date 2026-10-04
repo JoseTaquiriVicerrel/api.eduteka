@@ -11,19 +11,21 @@ import { buildSelectableAreas } from '#Libs/product_areas.js';
 import { safeSearchRegex } from '#Libs/text_utils.js';
 import { absoluteUrl, absolutizeHtml } from '#Libs/urls.js';
 import { logUserActivity } from '#Libs/user_activity.js';
+import { verifyVoucher } from '#Modules/payments/voucher.verify.js';
 import { CART_PRODUCT_PROJECTION, buildCart, serializeCartLine, toOrderItem, totalsOf } from './store.cart.js';
 
 // Tienda: catalogo de productos, carrito (que vive en el cliente), checkout con
-// comprobante y pedidos del usuario. La verificacion del comprobante es MANUAL: el pedido
-// queda 'pending' hasta que un administrador lo apruebe en el panel del monolito (la web
-// ademas lo pasa por IA; la API no, igual que en las inscripciones a simulacros).
+// comprobante y pedidos del usuario. Como en la web, el comprobante pasa primero por la IA
+// (#Modules/payments/voucher.verify.js): si el numero de operacion, el monto y la fecha
+// cuadran, el pedido nace 'verified' y los archivos se pueden descargar en el acto. Si no,
+// queda 'pending' con el motivo y lo revisa un administrador en el panel del monolito.
 
 export const CURRENCY = 'PEN';
 
-// Doble toque en "Pagar": el mismo importe pendiente en esta ventana se trata como el
-// mismo pedido (mismo criterio que la web).
+// Doble toque en "Pagar": el mismo importe en esta ventana se trata como el mismo pedido.
 const DUPLICATE_WINDOW_MS = 5 * 60 * 1000;
-const CHECKOUT_LOCK_SECONDS = 15;
+// Cubre la lectura con IA (PAYMENT_AI_TIMEOUT_MS); se libera al terminar.
+const CHECKOUT_LOCK_SECONDS = 90;
 
 const iso = (value) => (value ? new Date(value).toISOString() : null);
 
@@ -193,57 +195,75 @@ export const checkout = async ({ req, user, body, capture }) => {
         const duplicate = await OrderModel.exists({
             user_id: user._id,
             total,
-            status: 'pending',
+            // Tambien los verificados: con la IA, el primer envio puede haberse aprobado ya.
+            status: { $in: ['pending', 'verified'] },
             created_at: { $gte: new Date(Date.now() - DUPLICATE_WINDOW_MS) },
         }).exec();
-        if (duplicate) throw ApiError.conflict('Ya tienes un pedido reciente en revisión con este mismo importe.');
+        if (duplicate) throw ApiError.conflict('Ya registraste un pedido con este mismo importe hace unos minutos. Revisa tus pedidos.');
 
-        const paymentProof = await saveCapture(capture, { target: 'order', field: 'payment_proof' });
-        let order;
+        const verification = await verifyVoucher(capture, total);
         try {
-            order = await OrderModel.create({
-                user_id: user._id,
-                items: lines.map(toOrderItem),
-                total,
-                discount,
-                payment_method: body.payment_method,
-                payment_proof: paymentProof,
-                status: 'pending',
-            });
-        } catch (error) {
-            await deleteCapture(paymentProof);
-            throw error;
+            return await registerOrder({ req, user, body, capture, lines, total, discount, verification });
+        } finally {
+            await verification.release();
         }
-
-        notifyOrder(user, order);
-        void logUserActivity(req, user, {
-            action: ACTIVITY_ACTIONS.ORDER_CREATED,
-            target_type: 'order',
-            target_id: order._id,
-            metadata: { total, items_count: order.items.length, order_status: order.status },
-        });
-
-        return serializeOrder(order.toObject());
     } finally {
         await del(lockKey);
     }
 };
 
+const registerOrder = async ({ req, user, body, capture, lines, total, discount, verification }) => {
+    const { aiData, approved, reason } = verification;
+
+    const paymentProof = await saveCapture(capture, { target: 'order', field: 'payment_proof' });
+    let order;
+    try {
+        order = await OrderModel.create({
+            user_id: user._id,
+            items: lines.map(toOrderItem),
+            total,
+            discount,
+            payment_method: body.payment_method,
+            payment_proof: paymentProof,
+            status: approved ? 'verified' : 'pending',
+            status_reason: approved ? undefined : reason,
+            ai_analysis: aiData ?? undefined,
+        });
+    } catch (error) {
+        await deleteCapture(paymentProof);
+        throw error;
+    }
+
+    notifyOrder(user, order);
+    void logUserActivity(req, user, {
+        action: ACTIVITY_ACTIONS.ORDER_CREATED,
+        target_type: 'order',
+        target_id: order._id,
+        // 'verified' aqui = aprobado por la IA, sin pasar por un administrador.
+        metadata: { total, items_count: order.items.length, order_status: order.status, status_reason: order.status_reason ?? null },
+    });
+
+    return serializeOrder(order.toObject());
+};
+
 // Sin await: el pedido ya existe y un fallo de correo no puede devolver error (el usuario
 // volveria a pagar creyendo que no se registro).
 const notifyOrder = (user, order) => {
+    const verified = order.status === 'verified';
     void sendMail({
         to: user.email,
-        subject: 'Recibimos tu pedido',
+        subject: verified ? '¡Compra exitosa!' : 'Recibimos tu pedido',
         template: 'api_order_received',
-        data: { username: user.username, order_id: order._id, total: order.total.toFixed(2) },
+        data: { username: user.username, order_id: order._id, total: order.total.toFixed(2), verified },
     });
     if (settings.adminEmail) {
         void sendMail({
             to: settings.adminEmail,
-            subject: 'Nuevo Pedido Recibido',
+            subject: verified ? 'Pedido verificado automáticamente' : 'Nuevo Pedido Recibido',
             template: 'api_order_review',
             data: {
+                verified,
+                reason: order.status_reason ?? null,
                 order_id: order._id,
                 email: user.email,
                 total: order.total.toFixed(2),

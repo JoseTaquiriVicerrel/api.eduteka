@@ -12,14 +12,15 @@ import {
 
 // Resolver una practica exige una cuenta que practique: las de docente ven las
 // practicas como material y no acumulan progreso.
-const practiceAccount = [authenticate, authorize(), requireCapability(CAPABILITIES.USE_PRACTICES)];
+const practiceAccount = [authenticate, authorize(), requireCapability(CAPABILITIES.TAKE_PRACTICE)];
 
 // /practicas-area ---------------------------------------------------------------
 export const areaRouter = Router();
 
 // Los selectores son publicos: el postulante puede explorar que hay antes de crear cuenta.
 areaRouter.get('/temas', validate(TopicsQuery, 'query'), controller.areaTopics);
-areaRouter.get('/preguntas', ...practiceAccount, validate(AreaPracticeQuery, 'query'), controller.areaQuestions);
+// Generar una tanda es de toda cuenta con sesion: el estudiante la recibe sin clave y el docente resuelta.
+areaRouter.get('/preguntas', authenticate, authorize(), validate(AreaPracticeQuery, 'query'), controller.areaQuestions);
 areaRouter.post('/finalizar', ...practiceAccount, rateLimit('write'), validate(FinalizeAreaBody), controller.finalizeArea);
 
 // /practicas --------------------------------------------------------------------

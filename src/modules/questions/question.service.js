@@ -2,9 +2,10 @@ import QuestionModel from '#Models/question_model.js';
 import QuestionReportModel from '#Models/question_report_model.js';
 import { ApiError } from '#Libs/api_error.js';
 import { setNX } from '#Libs/kv.js';
+import { canViewAnswersDirectly } from '#Libs/capabilities.js';
 import { skipOf } from '#Libs/paginate.js';
 import {
-    PUBLIC_QUESTION_PROJECTION, buildCommunity, optionEntries, serializeAnswerResult, serializeQuestion,
+    buildCommunity, optionEntries, projectionFor, serializeAnswerResult, serializerFor,
 } from '#Serializers/question.serializer.js';
 import { assertQuota, consumeQuota } from './answer.quota.js';
 import { recordAnswers } from './answer.recorder.js';
@@ -22,7 +23,9 @@ const cleanSearchText = (value) => String(value ?? '')
     .trim()
     .slice(0, MAX_SEARCH_LENGTH);
 
-export const listQuestions = async ({ area, topic, difficulty, institution, q, page, limit }) => {
+// `user` puede ser null (visitante): solo las cuentas con view_answers_directly reciben la clave.
+export const listQuestions = async ({ area, topic, difficulty, institution, q, page, limit, user = null }) => {
+    const answers = canViewAnswersDirectly(user);
     const areaId = area ? (await resolveArea(area))._id : null;
     const filter = practicableFilter({ areaId, topic, difficulty, institution });
 
@@ -31,7 +34,7 @@ export const listQuestions = async ({ area, topic, difficulty, institution, q, p
     const search = cleanSearchText(q);
     if (search) filter.$text = { $search: search };
 
-    const projection = search ? { ...PUBLIC_QUESTION_PROJECTION, score: { $meta: 'textScore' } } : PUBLIC_QUESTION_PROJECTION;
+    const projection = search ? { ...projectionFor(answers), score: { $meta: 'textScore' } } : projectionFor(answers);
     // Orden estable: sin busqueda, lo mas reciente primero; con busqueda, por relevancia.
     const sort = search ? { score: { $meta: 'textScore' }, _id: 1 } : { created_at: -1, _id: 1 };
 
@@ -40,7 +43,7 @@ export const listQuestions = async ({ area, topic, difficulty, institution, q, p
         QuestionModel.countDocuments(filter).exec(),
     ]);
 
-    return { items: items.map(serializeQuestion), total };
+    return { items: items.map(serializerFor(answers)), total, answers_visible: answers };
 };
 
 export const getTopics = async ({ area, institution = null, withResolution = false }) => {
@@ -55,10 +58,11 @@ export const getTopics = async ({ area, institution = null, withResolution = fal
     return topics.map((item) => ({ topic: item._id, count: item.count }));
 };
 
-export const getQuestion = async (id) => {
-    const question = await QuestionModel.findOne({ _id: id, ...practicableFilter() }, PUBLIC_QUESTION_PROJECTION).lean().exec();
+export const getQuestion = async (id, user = null) => {
+    const answers = canViewAnswersDirectly(user);
+    const question = await QuestionModel.findOne({ _id: id, ...practicableFilter() }, projectionFor(answers)).lean().exec();
     if (!question) throw ApiError.notFound('No encontramos esa pregunta.');
-    return serializeQuestion(question);
+    return serializerFor(answers)(question);
 };
 
 // --- Responder --------------------------------------------------------------

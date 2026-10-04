@@ -30,6 +30,15 @@ export const PUBLIC_QUESTION_PROJECTION = Object.freeze({
     dependence: 1,
 });
 
+/**
+ * Campos que se piden ademas para quien ve las respuestas directamente (docentes). Nunca se
+ * usa para estudiantes ni visitantes: ver `canViewAnswersDirectly` en #Libs/capabilities.js.
+ */
+export const ANSWER_QUESTION_PROJECTION = Object.freeze({ ...PUBLIC_QUESTION_PROJECTION, rpta: 1, resolution: 1 });
+
+/** Proyeccion segun quien mira: con `answers` incluye la clave y la explicacion. */
+export const projectionFor = (answers) => (answers ? ANSWER_QUESTION_PROJECTION : PUBLIC_QUESTION_PROJECTION);
+
 const serializeContext = (dependence) => {
     if (!dependence || typeof dependence !== 'object' || !dependence.text) return null;
     return { id: dependence.id ?? null, text: absolutizeHtml(dependence.text) };
@@ -48,6 +57,17 @@ export const serializeQuestion = (question) => ({
     // Texto de lectura compartido por varias preguntas (si lo hay).
     context: serializeContext(question.dependence),
 });
+
+/** Pregunta con la clave a la vista, solo para cuentas con view_answers_directly. */
+export const serializeQuestionWithAnswer = (question) => ({
+    ...serializeQuestion(question),
+    correct: question.rpta ?? null,
+    explanation: question.resolution ? absolutizeHtml(question.resolution) : null,
+    answers_visible: true,
+});
+
+/** Elige el serializador segun si el solicitante ve las respuestas. */
+export const serializerFor = (answers) => (answers ? serializeQuestionWithAnswer : serializeQuestion);
 
 const readCounter = (counters, key) => {
     if (!counters) return 0;

@@ -59,6 +59,13 @@ process.on('unhandledRejection', (reason) => {
     logger.error({ err: reason instanceof Error ? reason.message : String(reason) }, 'unhandledRejection');
 });
 
+// El proceso queda en estado indefinido tras una excepcion no capturada: se registra con
+// stack (para saber el motivo del crash) y se sale para que el supervisor lo reinicie.
+process.on('uncaughtException', (error, origin) => {
+    logger.fatal({ err: error?.message ?? String(error), stack: error?.stack, origin }, 'uncaughtException');
+    process.exit(1);
+});
+
 bootstrap().catch((error) => {
     logger.fatal({ err: error.message }, 'No se pudo iniciar la API');
     process.exit(1);

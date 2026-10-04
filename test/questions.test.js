@@ -139,6 +139,32 @@ describe('banco de preguntas', () => {
         });
     });
 
+    describe('respuestas visibles para el docente', () => {
+        const as = (user, route) => request(ctx.app).get(`/api/v1/preguntas${route}`).set(user ? bearer(user) : {});
+
+        it('listado y detalle incluyen clave, explicacion y answers_visible solo con view_answers_directly', async () => {
+            const list = await as(teacher, '?area=matematica').expect(200);
+            assert.equal(list.body.meta.answers_visible, true);
+            const q1 = list.body.data.find((q) => q.id === 'q1');
+            assert.equal(q1.correct, 'B');
+            assert.match(q1.explanation, /Porque sí/);
+            assert.equal(q1.answers_visible, true);
+            assert.ok(!list.body.data.some((q) => q.id === 'q5'), 'el banco privado de docentes no se sirve');
+
+            const detail = await as(teacher, '/q1').expect(200);
+            assert.equal(detail.body.data.correct, 'B');
+            assert.equal(detail.body.data.answers_visible, true);
+
+            for (const viewer of [student, null]) {
+                const res = await as(viewer, '/q1').expect(200);
+                assert.ok(!('correct' in res.body.data) && !('explanation' in res.body.data) && !('answers_visible' in res.body.data));
+                const all = await as(viewer, '?area=matematica').expect(200);
+                assert.equal(all.body.meta.answers_visible, undefined);
+                assert.ok(all.body.data.every((q) => !('correct' in q) && !('explanation' in q)));
+            }
+        });
+    });
+
     describe('GET /preguntas/:id', () => {
         it('devuelve la pregunta sin respuesta', async () => {
             const res = await get('/q1').expect(200);
@@ -158,7 +184,8 @@ describe('banco de preguntas', () => {
         it('exige sesion (401) y una cuenta que practique (403 para docentes)', async () => {
             await request(ctx.app).post('/api/v1/preguntas/q1/responder').send({ selected: 'A' }).expect(401);
             const res = await answer('q1', 'A', teacher).expect(403);
-            assert.equal(res.body.error.code, 'FORBIDDEN');
+            assert.equal(res.body.error.code, 'CAPABILITY_REQUIRED');
+            assert.match(res.body.error.message, /ven la respuesta directamente/);
         });
 
         it('respuesta correcta: corrige, explica y suma un voto a la comunidad', async () => {

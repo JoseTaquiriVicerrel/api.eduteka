@@ -3,9 +3,10 @@ import PracticeAttemptModel from '#Models/practice_attempt_model.js';
 import UserQuestionsListModel from '#Models/user_questions_list_model.js';
 import { ApiError } from '#Libs/api_error.js';
 import { del, setNX } from '#Libs/kv.js';
+import { canViewAnswersDirectly } from '#Libs/capabilities.js';
 import { skipOf } from '#Libs/paginate.js';
 import { absolutizeHtml } from '#Libs/urls.js';
-import { PUBLIC_QUESTION_PROJECTION, optionEntries, serializeQuestion } from '#Serializers/question.serializer.js';
+import { optionEntries, projectionFor, serializerFor } from '#Serializers/question.serializer.js';
 import { invalidateProgress } from '#Modules/progress/progress.cache.js';
 import { assertQuota, consumeQuota, remainingQuota } from '#Modules/questions/answer.quota.js';
 import { recordAnswers } from '#Modules/questions/answer.recorder.js';
@@ -29,22 +30,25 @@ const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const generateAreaPractice = async ({ user, area, topic, difficulty, institution, count, withResolution }) => {
     const { _id: areaId } = await resolveArea(area);
 
-    const remaining = await remainingQuota(user);
+    // El docente ve la tanda resuelta: no responde, asi que no gasta cupo diario.
+    const answers = canViewAnswersDirectly(user);
+    const remaining = answers ? Infinity : await remainingQuota(user);
     if (remaining === 0) await assertQuota(user, 1);
     const size = Math.min(count, remaining);
 
     const docs = await QuestionModel.aggregate([
         { $match: practicableFilter({ areaId, topic, difficulty, institution, withResolution }) },
         { $sample: { size } },
-        { $project: PUBLIC_QUESTION_PROJECTION },
+        { $project: projectionFor(answers) },
     ]).exec();
 
     return {
-        questions: docs.map(serializeQuestion),
+        questions: docs.map(serializerFor(answers)),
         meta: {
             total: docs.length,
             requested: count,
             quota_remaining: Number.isFinite(remaining) ? remaining : null,
+            ...(answers ? { answers_visible: true } : {}),
         },
     };
 };
@@ -247,7 +251,8 @@ const loadPracticeQuestions = async (practice, projection) => {
 
 export const getPractice = async ({ slug, user }) => {
     const practice = await findVisiblePractice(slug, user);
-    const questions = await loadPracticeQuestions(practice, PUBLIC_QUESTION_PROJECTION);
+    const answers = canViewAnswersDirectly(user);
+    const questions = await loadPracticeQuestions(practice, projectionFor(answers));
 
     return {
         id: practice._id,
@@ -256,7 +261,8 @@ export const getPractice = async ({ slug, user }) => {
         description: practice.description ?? null,
         count_questions: questions.length,
         areas: serializeAreas(practice.areas),
-        questions: questions.map(serializeQuestion),
+        questions: questions.map(serializerFor(answers)),
+        ...(answers ? { answers_visible: true } : {}),
     };
 };
 

@@ -8,9 +8,6 @@ export const getPlan = asyncHandler(async (req, res) =>
     ok(res, await subscriptions.getPlan({ slug: req.params.slug, user: req.user })));
 
 export const subscribe = asyncHandler(async (req, res) =>
-    created(res, await subscriptions.subscribe({ req, user: req.user, slug: req.params.slug, body: req.body, capture: req.capture })));
-
-export const renew = asyncHandler(async (req, res) =>
-    created(res, await subscriptions.renew({ req, user: req.user, body: req.body, capture: req.capture })));
+    created(res, await subscriptions.subscribe({ req, user: req.user, slug: req.params.slug, body: req.body, capture: req.capture, idempotencyKey: req.get('Idempotency-Key') })));
 
 export const status = asyncHandler(async (req, res) => ok(res, await subscriptions.getStatus(req.user)));

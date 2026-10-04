@@ -245,6 +245,7 @@ describe('mis-listas', () => {
 
             const res = await call('post', `/${list.id}/preguntas`, free, { question_id: 'x30' }).expect(403);
             assert.equal(res.body.error.code, 'SUBSCRIPTION_REQUIRED');
+            assert.match(res.body.error.message, /hasta 30 preguntas/);
             await call('post', '', free, { name: 'Excede', question_ids: ids(0, 31) }).expect(403);
             await call('patch', `/${list.id}`, free, { questions: ids(0, 31) }).expect(403);
         });
@@ -258,7 +259,7 @@ describe('mis-listas', () => {
             await call('post', `/${list.id}/preguntas`, premium, { question_id: 'q1' }).expect(201);
             assert.equal((await call('get', `/${list.id}`, premium).expect(200)).body.data.count_questions, 41);
 
-            // 51 no cabe ni siquiera para quien paga (y ademas supera el maximo del esquema).
+            // 51 no cabe ni siquiera para quien paga.
             await call('post', '', premium, { name: 'Enorme', question_ids: ['q1', ...ids(0, 50)] }).expect(422);
         });
 

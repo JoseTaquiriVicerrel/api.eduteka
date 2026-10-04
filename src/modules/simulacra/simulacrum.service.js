@@ -4,13 +4,14 @@ import UserModel from '#Models/user_model.js';
 import UserSimulacrumModel from '#Models/user_simulacrum_model.js';
 import { settings } from '#Config/settings.js';
 import { ApiError } from '#Libs/api_error.js';
-import { CAPABILITIES, capabilitiesFor, isPremium } from '#Libs/capabilities.js';
+import { canSeeSolutions, isPremium } from '#Libs/capabilities.js';
 import { deleteCapture, saveCapture } from '#Libs/capture_storage.js';
 import { del, setNX } from '#Libs/kv.js';
 import { skipOf } from '#Libs/paginate.js';
 import { getSimulacrumAreaOptions } from '#Libs/simulacrum_areas.js';
 import { sendMail } from '#Libs/mailer.js';
 import { absoluteUrl, absolutizeHtml } from '#Libs/urls.js';
+import { verifyVoucher } from '#Modules/payments/voucher.verify.js';
 import { invalidateProgress } from '#Modules/progress/progress.cache.js';
 import { archiveAttempt, attemptFilter, listAttempts, startNewAttempt } from './simulacrum.attempts.js';
 import { gradeAttempt } from './simulacrum.grading.js';
@@ -88,12 +89,16 @@ const serializeSummary = (simulacrum, enrollment, now) => ({
     enrolled: enrollment === undefined ? undefined : Boolean(enrollment),
 });
 
+const PENDING_REASON = 'Pendiente de verificación';
+
 const serializeEnrollment = (simulacrum, enrollment, now) => {
     const blocked = retryBlockedReason(enrollment, simulacrum);
     return {
         id: enrollment._id,
         verified: enrollment.state === true,
-        status_reason: enrollment.status_reason ?? null,
+        // `status_reason` guarda el motivo interno de la revision manual (lo lee el panel del
+        // administrador, igual que en la web): al postulante solo se le dice que esta pendiente.
+        status_reason: enrollment.state === true ? null : PENDING_REASON,
         area: enrollment.area ?? null,
         career: enrollment.career ?? null,
         amount_paid: enrollment.amount_paid ?? 0,
@@ -235,7 +240,8 @@ export const enroll = async ({ user, slug, body, capture }) => {
     // el bloqueo se toma justo antes de escribir y se libera siempre, para que corregir un
     // dato y reintentar no choque con el intento anterior.
     const lockKey = `enroll-lock:${user._id}:${simulacrum._id}`;
-    if (!(await setNX(lockKey, 10))) throw ApiError.conflict('Tu inscripción aún se está procesando.');
+    // Cubre la lectura del comprobante con IA (PAYMENT_AI_TIMEOUT_MS).
+    if (!(await setNX(lockKey, 90))) throw ApiError.conflict('Tu inscripción aún se está procesando.');
 
     try {
         return await createEnrollment({ user, simulacrum, body, capture, price, area, career });
@@ -263,35 +269,47 @@ const createEnrollment = async ({ user, simulacrum, body, capture, price, area, 
 
     if (price <= 0) {
         enrollment.state = true;
-    } else {
-        enrollment.screenshot = await saveCapture(capture);
-        // La verificacion es manual (panel del monolito): quedan pendientes hasta que un administrador las apruebe.
-        enrollment.state = false;
-        enrollment.status_reason = 'Pendiente de verificación';
-    }
-
-    try {
         await UserSimulacrumModel.create(enrollment);
-    } catch (error) {
-        await deleteCapture(enrollment.screenshot);
-        throw error;
+    } else {
+        // Como en la web, el comprobante pasa primero por la IA (#Modules/payments/voucher.verify.js):
+        // con numero de operacion, monto y fecha correctos la inscripcion queda verificada; si
+        // no, pendiente con el motivo hasta que un administrador la apruebe en el panel.
+        const verification = await verifyVoucher(capture, price);
+        try {
+            enrollment.state = verification.approved;
+            if (!verification.approved) enrollment.status_reason = verification.reason;
+            if (verification.aiData) enrollment.ai_analysis = verification.aiData;
+            enrollment.screenshot = await saveCapture(capture);
+            try {
+                await UserSimulacrumModel.create(enrollment);
+            } catch (error) {
+                await deleteCapture(enrollment.screenshot);
+                throw error;
+            }
+        } finally {
+            await verification.release();
+        }
     }
 
     await UserModel.updateOne({ _id: user._id }, { $set: { fullname: body.fullname } }).exec();
 
     if (price > 0) {
+        const verified = enrollment.state === true;
         void sendMail({
             to: user.email,
-            subject: 'Recibimos tu inscripción',
+            subject: verified ? 'Inscripción confirmada' : 'Recibimos tu inscripción',
             template: 'api_simulacrum_enrolled',
-            data: { username: user.username, title: simulacrum.title, verified: false },
+            data: { username: user.username, title: simulacrum.title, verified },
         });
         if (settings.adminEmail) {
             void sendMail({
                 to: settings.adminEmail,
-                subject: 'Nueva inscripción con comprobante',
+                subject: verified ? 'Inscripción verificada automáticamente' : 'Nueva inscripción con comprobante',
                 template: 'api_simulacrum_payment_review',
-                data: { title: simulacrum.title, fullname: body.fullname, email: user.email, price, enrollment_id: enrollment._id },
+                data: {
+                    title: simulacrum.title, fullname: body.fullname, email: user.email, price, enrollment_id: enrollment._id,
+                    verified, reason: enrollment.status_reason ?? null,
+                },
             });
         }
     }
@@ -684,14 +702,15 @@ export const getSolucionario = async ({ user, slug, area }) => {
     const full = await loadFull(simulacrum._id);
 
     const enrollment = await UserSimulacrumModel.findOne({ user_id: user._id, simulacrum_id: simulacrum._id, state: true }).lean().exec();
-    const canTeach = capabilitiesFor(user).includes(CAPABILITIES.TEACHER_TOOLS);
+    const canTeach = canSeeSolutions(user);
     let answers = {};
     let useArea;
+    let teacherPreview = false;
 
     if (enrollment) {
         // Con un intento abierto el solucionario se cierra: tener las respuestas a la vista mientras se rinde no mediria nada.
         if (enrollment.finished !== true) throw ApiError.forbidden('El solucionario se habilita cuando termines tu intento.');
-        if (settings.limits.solucionarioRequiresPlan && !isPremium(user, now)) throw ApiError.subscriptionRequired('Necesitas una suscripción activa para ver el solucionario.');
+        if (settings.limits.solucionarioRequiresPlan && !isPremium(user, now)) throw ApiError.subscriptionRequired('Necesitas una suscripción activa para ver el solucionario.', { backSlug: simulacrum.slug });
         // En un evento en curso, quien termina antes no puede pasarles las respuestas a los demas.
         if (simulacrum.automatic && simulacrumStatus(simulacrum, now) !== 'finished') {
             throw ApiError.forbidden('El solucionario se habilita cuando cierre el simulacro.');
@@ -700,9 +719,10 @@ export const getSolucionario = async ({ user, slug, area }) => {
         useArea = enrollment.area;
     } else if (canTeach) {
         // El docente no rinde: lo revisa como material, y solo con suscripcion activa.
-        if (!isPremium(user, now)) throw ApiError.subscriptionRequired('Necesitas una suscripción activa para ver el solucionario del simulacro.');
+        if (!isPremium(user, now)) throw ApiError.subscriptionRequired('Necesitas una suscripción activa para ver el solucionario del simulacro.', { backSlug: simulacrum.slug });
         const keys = isGeneralSimulacrum(full) ? [] : Object.keys(full.areas ?? {});
         useArea = keys.includes(area) ? area : keys[0];
+        teacherPreview = true;
     } else {
         throw ApiError.notFound('No encontramos tu inscripción en este simulacro.');
     }
@@ -713,6 +733,8 @@ export const getSolucionario = async ({ user, slug, area }) => {
     return {
         simulacrum: { id: simulacrum._id, slug: simulacrum.slug, title: simulacrum.title ?? null },
         area: useArea ?? null,
+        // El docente revisa como material, sin intento propio.
+        ...(teacherPreview ? { teacher_preview: true } : {}),
         items: items.map((item) => {
             if (item.kind === 'reading') return { kind: 'reading', id: item.id, title: item.title, text: absolutizeHtml(item.text), area: item.area };
             number += 1;

@@ -3,8 +3,9 @@ import { paginationFields } from '#Libs/paginate.js';
 
 const strict = { additionalProperties: false };
 const Id = Type.String({ minLength: 1, maxLength: 64 });
-// Hasta 50 preguntas por lista (el tope real depende del plan; ver list.service.js).
-const QuestionIds = Type.Array(Id, { maxItems: 50, uniqueItems: true });
+// El tope real depende del plan (list.service.js, #Libs/plan_limits.js); aqui solo un techo
+// que protege de cuerpos desmedidos.
+const QuestionIds = Type.Array(Id, { maxItems: 500, uniqueItems: true });
 
 const Name = Type.String({ minLength: 1, maxLength: 120, pattern: '\\S' });
 const Description = Type.String({ maxLength: 500 });

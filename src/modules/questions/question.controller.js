@@ -4,8 +4,9 @@ import { pageMeta } from '#Libs/paginate.js';
 import * as questions from './question.service.js';
 
 export const list = asyncHandler(async (req, res) => {
-    const { items, total } = await questions.listQuestions(req.query);
-    return ok(res, items, pageMeta({ page: req.query.page, limit: req.query.limit, total }));
+    const { items, total, answers_visible: answersVisible } = await questions.listQuestions({ ...req.query, user: req.user });
+    const meta = pageMeta({ page: req.query.page, limit: req.query.limit, total });
+    return ok(res, items, answersVisible ? { ...meta, answers_visible: true } : meta);
 });
 
 export const topics = asyncHandler(async (req, res) => ok(res, await questions.getTopics({
@@ -14,7 +15,7 @@ export const topics = asyncHandler(async (req, res) => ok(res, await questions.g
     withResolution: req.query.with_resolution === true,
 })));
 
-export const detail = asyncHandler(async (req, res) => ok(res, await questions.getQuestion(req.params.id)));
+export const detail = asyncHandler(async (req, res) => ok(res, await questions.getQuestion(req.params.id, req.user)));
 
 export const answer = asyncHandler(async (req, res) => ok(res, await questions.answerQuestion({
     user: req.user,

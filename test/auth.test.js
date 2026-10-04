@@ -135,7 +135,8 @@ describe('POST /auth/verify-code y /auth/resend-code', () => {
         assert.ok(data.access_token && data.refresh_token);
         assert.equal(data.user.email, body.email);
         assert.equal(data.user.is_verified, true);
-        assert.deepEqual(data.user.capabilities.sort(), ['TAKE_SIMULACRUM', 'TRACK_PROGRESS', 'USE_PRACTICES']);
+        assert.deepEqual(data.user.capabilities.sort(), ['answer_questions', 'buy_materials', 'download_materials', 'take_practice', 'take_simulacrum', 'track_progress']);
+        assert.deepEqual(data.user.plan_limits, { list_questions: 30, materials: 20, templates: 10 });
 
         const user = await ctx.User.findOne({ email: body.email }).lean();
         assert.equal(user.isVerified, true);
@@ -337,7 +338,7 @@ describe('GET /auth/me y autenticacion por Bearer', () => {
         await get('/me', session.access_token).expect(401);
     });
 
-    it('suscripcion activa: dias restantes y capacidad de descarga', async () => {
+    it('suscripcion activa: dias restantes y topes del plan', async () => {
         const { body, session } = await createVerifiedUser();
         const end = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
         await ctx.User.updateOne({ email: body.email }, { $set: { suscription: { status: 'activo', slug: 'plan-6m', name: '6 meses', start_date: new Date(), end_date: end } } });
@@ -346,7 +347,7 @@ describe('GET /auth/me y autenticacion por Bearer', () => {
         assert.equal(res.body.data.suscription.active, true);
         assert.equal(res.body.data.suscription.days_remaining, 10);
         assert.equal(res.body.data.suscription.slug, 'plan-6m');
-        assert.ok(res.body.data.capabilities.includes('DOWNLOAD_EXAMS'));
+        assert.deepEqual(res.body.data.plan_limits, { list_questions: 50, materials: 20, templates: 10 });
     });
 
     it('suscripcion vencida pero aun marcada activo (cron pendiente): no es premium', async () => {
@@ -355,13 +356,14 @@ describe('GET /auth/me y autenticacion por Bearer', () => {
 
         const res = await get('/me', session.access_token).expect(200);
         assert.equal(res.body.data.suscription.active, false);
-        assert.ok(!res.body.data.capabilities.includes('DOWNLOAD_EXAMS'));
+        assert.deepEqual(res.body.data.plan_limits, { list_questions: 30, materials: 20, templates: 10 });
     });
 
-    it('cuenta Profesor: herramientas de docente, sin simulacros ni progreso', async () => {
+    it('cuenta Profesor: ve las respuestas, sin responder, simulacros ni progreso', async () => {
         const { session } = await createVerifiedUser({ account_type: 'Profesor', teaching_area: 'area-lenguaje' });
         const res = await get('/me', session.access_token).expect(200);
-        assert.deepEqual(res.body.data.capabilities, ['TEACHER_TOOLS']);
+        assert.ok(res.body.data.capabilities.includes('view_answers_directly'));
+        for (const cap of ['answer_questions', 'take_practice', 'take_simulacrum', 'track_progress']) assert.ok(!res.body.data.capabilities.includes(cap), cap);
         assert.equal(res.body.data.teaching_area, 'area-lenguaje');
     });
 });

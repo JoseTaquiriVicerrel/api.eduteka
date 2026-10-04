@@ -4,6 +4,14 @@
 // `code` es parte del contrato con los clientes: en ingles, estable, y no se
 // renombra. `message` es texto para mostrar y puede cambiar.
 
+// Mensajes listos para mostrar cuando falta una capacidad (el cliente los pinta tal cual).
+const CAPABILITY_MESSAGES = {
+    answer_questions: 'Las cuentas de docente no responden preguntas: ven la respuesta directamente.',
+    take_practice: 'Las cuentas de docente no resuelven prácticas: las ven resueltas.',
+    take_simulacrum: 'Los simulacros son solo para cuentas de estudiante.',
+    track_progress: 'El progreso es solo para cuentas de estudiante.',
+};
+
 export class ApiError extends Error {
     constructor(status, code, message, { details, headers } = {}) {
         super(message);
@@ -38,8 +46,22 @@ export class ApiError extends Error {
         return new ApiError(403, 'FORBIDDEN', message);
     }
 
-    static subscriptionRequired(message = 'Esta función requiere una suscripción activa.') {
-        return new ApiError(403, 'SUBSCRIPTION_REQUIRED', message);
+    static capabilityRequired(capability, message = CAPABILITY_MESSAGES[capability] ?? 'Tu tipo de cuenta no puede realizar esta acción.') {
+        return new ApiError(403, 'CAPABILITY_REQUIRED', message, { details: { capability } });
+    }
+
+    static paymentPending(message = 'Ya tienes un pago en revisión. Te avisaremos por correo cuando se active tu suscripción.') {
+        return new ApiError(409, 'PAYMENT_PENDING', message);
+    }
+
+    static renewalAlreadyQueued(message = 'Ya renovaste tu plan: la renovación empieza cuando termine el periodo actual. Podrás renovar de nuevo entonces.') {
+        return new ApiError(409, 'RENEWAL_ALREADY_QUEUED', message);
+    }
+
+    // `backSlug`: vista publica a la que volver (p. ej. la ficha del simulacro), para que el cliente no
+    // mande al usuario a un listado ajeno.
+    static subscriptionRequired(message = 'Esta función requiere una suscripción activa.', { backSlug } = {}) {
+        return new ApiError(403, 'SUBSCRIPTION_REQUIRED', message, backSlug ? { details: { back_slug: backSlug } } : undefined);
     }
 
     static institutionRestricted(message = 'Tu plan está limitado a otra institución.') {

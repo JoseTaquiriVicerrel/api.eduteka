@@ -62,7 +62,7 @@ export function requireCapability(capability) {
         if (!req.user) {
             return next(req.authError === 'disabled' ? ApiError.accountDisabled() : ApiError.unauthenticated());
         }
-        if (!capabilitiesFor(req.user).includes(capability)) return next(ApiError.forbidden('Tu tipo de cuenta no puede realizar esta acción.'));
+        if (!capabilitiesFor(req.user).includes(capability)) return next(ApiError.capabilityRequired(capability));
         return next();
     };
 }

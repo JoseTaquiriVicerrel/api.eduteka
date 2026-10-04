@@ -4,7 +4,7 @@ import FavoriteExamModel from '#Models/favorite_exam_model.js';
 import QuestionModel from '#Models/question_model.js';
 import { settings } from '#Config/settings.js';
 import { ApiError } from '#Libs/api_error.js';
-import { CAPABILITIES, capabilitiesFor, isPremium } from '#Libs/capabilities.js';
+import { canSeeSolutions, isPremium } from '#Libs/capabilities.js';
 import { setNX } from '#Libs/kv.js';
 import { skipOf } from '#Libs/paginate.js';
 import {
@@ -120,7 +120,7 @@ export const getExam = async ({ slug, area, user }) => {
     const totalQuestions = all.filter((item) => item.itype !== 'reading_section' && item.itype !== 'block').length;
 
     // Docentes y administradores ven las respuestas (material de trabajo) y no tienen vista previa.
-    const canTeach = user ? capabilitiesFor(user).includes(CAPABILITIES.TEACHER_TOOLS) : false;
+    const canTeach = user ? canSeeSolutions(user) : false;
     const unrestricted = canTeach || (user ? isPremium(user) : false);
     const served = unrestricted ? all : applyPreview(all, settings.limits.examPreviewQuestions);
     const servedQuestions = served.filter((item) => item.itype !== 'reading_section' && item.itype !== 'block').length;

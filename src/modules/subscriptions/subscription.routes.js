@@ -17,7 +17,6 @@ router.get('/', authenticate, controller.listPlans);
 
 // Rutas fijas antes que `/:slug`.
 router.get('/estado', ...members, controller.status);
-router.post('/renovar', ...members, rateLimit('write'), uploadProof, validate(SubscribeBody), controller.renew);
 
 router.get('/:slug', authenticate, validate(SlugParams, 'params'), controller.getPlan);
 router.post(

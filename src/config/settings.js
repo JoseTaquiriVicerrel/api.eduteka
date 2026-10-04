@@ -77,6 +77,40 @@ const nodeEnv = str('NODE_ENV', 'development');
 const isProduction = nodeEnv === 'production' || env.MODE === 'PRODUCTION';
 const isTest = nodeEnv === 'test';
 
+// URL absoluta de una imagen/enlace de pago (QR del titular). https siempre;
+// http solo fuera de produccion. Una invalida se descarta y se avisa al arrancar.
+const absoluteUrl = (name) => {
+    const value = str(name, null);
+    if (!value) return null;
+    let parsed;
+    try {
+        parsed = new URL(value);
+    } catch {
+        problems.push(`${name} debe ser una URL absoluta`);
+        return null;
+    }
+    if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && !isProduction)) {
+        problems.push(`${name} debe ser https${isProduction ? '' : ' (o http fuera de produccion)'}`);
+        return null;
+    }
+    return parsed.toString();
+};
+
+// Datos para pagar por Yape/Plin (PAYMENT_<ID>_NUMBER/HOLDER/QR_URL).
+// Un metodo sin numero no se expone.
+const paymentMethod = (id, label) => {
+    const prefix = `PAYMENT_${id.toUpperCase()}`;
+    const number = str(`${prefix}_NUMBER`, null);
+    if (!number) return null;
+    return Object.freeze({
+        id,
+        label,
+        number,
+        holder: str(`${prefix}_HOLDER`, null),
+        qr_url: absoluteUrl(`${prefix}_QR_URL`),
+    });
+};
+
 // --- Correo -----------------------------------------------------------------
 // resend -> API HTTP de Resend | smtp -> nodemailer | console -> imprime el
 // mensaje en el log (solo desarrollo) | memory -> lo guarda en memoria (tests).
@@ -94,6 +128,15 @@ if (isProduction && ['console', 'memory'].includes(mailProvider)) {
 }
 
 const smtpPort = int('SMTP_PORT', int('EMAIL_PORT', 465, { min: 1, max: 65535 }), { min: 1, max: 65535 });
+
+// --- Verificacion de comprobantes con IA -----------------------------------------
+// gemini -> lee el comprobante con la API de Gemini (como la web) | none -> todo pasa a
+// revision manual | memory -> lecturas fijadas por las pruebas.
+const geminiKey = str('GEMINI_API_KEY');
+const paymentAiProvider = str('PAYMENT_AI_PROVIDER', geminiKey ? 'gemini' : 'none');
+if (!['gemini', 'none', 'memory'].includes(paymentAiProvider)) problems.push('PAYMENT_AI_PROVIDER debe ser gemini, none o memory');
+if (paymentAiProvider === 'gemini' && !geminiKey) problems.push('PAYMENT_AI_PROVIDER=gemini requiere GEMINI_API_KEY');
+if (isProduction && paymentAiProvider === 'memory') problems.push('PAYMENT_AI_PROVIDER=memory no se permite en produccion');
 
 const jwtSecret = required('JWT_SECRET', { minLength: 32 });
 
@@ -146,6 +189,17 @@ const settings = Object.freeze({
     // Aviso interno cuando llega un comprobante por verificar.
     adminEmail: str('ADMIN_EMAIL', null),
 
+    // Lectura del comprobante con IA. Si aprueba, el pago se acepta solo; ante cualquier
+    // duda (o si la IA falla) queda en revision manual con el motivo para el administrador.
+    paymentAi: Object.freeze({
+        provider: paymentAiProvider,
+        geminiApiKey: geminiKey ?? null,
+        model: str('PAYMENT_AI_MODEL', 'gemini-2.5-flash'),
+        timeoutMs: int('PAYMENT_AI_TIMEOUT_MS', 20000, { min: 1000, max: 60000 }),
+        // Antiguedad maxima (dias, hora de Lima) de la fecha del comprobante para aprobarlo solo.
+        voucherMaxAgeDays: int('PAYMENT_VOUCHER_MAX_AGE_DAYS', 3, { min: 0, max: 60 }),
+    }),
+
     limits: Object.freeze({
         // Respuestas nuevas por dia (hora de Lima) para cuentas sin suscripcion
         // activa. 0 = sin limite. Cambiar de opcion en una pregunta ya respondida no cuenta.
@@ -177,6 +231,7 @@ const settings = Object.freeze({
         webUrl: normalizeWebUrl(str('PUBLIC_WEB_URL', str('WEB_URL', str('APP_URL', null)))),
         // URL publica de ESTA API (para los enlaces absolutos a archivos que sirve, como los avatares).
         apiUrl: normalizeWebUrl(str('PUBLIC_API_URL', null)),
+        paymentMethods: Object.freeze([paymentMethod('yape', 'Yape'), paymentMethod('plin', 'Plin')].filter(Boolean)),
     }),
 
     mail: Object.freeze({

@@ -2,11 +2,16 @@
 <html lang="es">
 <head><meta charset="utf-8"><title>Comprobante por verificar</title></head>
 <body style="font-family:Arial,Helvetica,sans-serif;color:#1f2933;padding:24px;">
-  <h2 style="margin:0 0 12px;">Nueva inscripción con comprobante</h2>
+  <h2 style="margin:0 0 12px;">{{#if verified}}Inscripción verificada automáticamente{{else}}Nueva inscripción con comprobante{{/if}}</h2>
   <p>Simulacro: <strong>{{title}}</strong></p>
   <p>Postulante: {{fullname}} ({{email}})</p>
   <p>Monto esperado: S/ {{price}}</p>
+  {{#if verified}}
+  <p>Estado: <strong>verificada por IA</strong> (número de operación, monto y fecha).</p>
+  {{else}}
   <p>Estado: <strong>pendiente de verificación</strong>. Revísala en el panel de inscritos del simulacro.</p>
+  {{#if reason}}<p>Motivo de la revisión manual: {{reason}}</p>{{/if}}
+  {{/if}}
   <p style="color:#616e7c;font-size:12px;">Inscripción {{enrollment_id}}</p>
 </body>
 </html>

@@ -7,6 +7,7 @@
   <p>Plan: <strong>{{plan}}</strong> ({{transaction_type}})</p>
   <p>Monto esperado: <strong>S/ {{amount}}</strong> ({{payment_method}})</p>
   <p>Estado: <strong>Pendiente</strong>. Revísalo en el panel de suscripciones.</p>
+  {{#if reason}}<p>Motivo de la revisión manual: {{reason}}</p>{{/if}}
   <p style="color:#616e7c;font-size:12px;">Pago {{payment_id}} (registrado desde la app)</p>
 </body>
 </html>

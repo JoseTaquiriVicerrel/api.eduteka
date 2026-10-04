@@ -2,7 +2,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import QuestionModel from '#Models/question_model.js';
 import UserQuestionsListModel from '#Models/user_questions_list_model.js';
 import { ApiError } from '#Libs/api_error.js';
-import { CAPABILITIES, capabilitiesFor, isPremium } from '#Libs/capabilities.js';
+import { canSeeSolutions, isPremium } from '#Libs/capabilities.js';
+import { limitsFor } from '#Libs/plan_limits.js';
 import { convertSlug, groupByAndCount } from '#Libs/functions.js';
 import { buildListPdf } from '#Libs/list_pdf.js';
 import { skipOf } from '#Libs/paginate.js';
@@ -12,15 +13,13 @@ import { practicableFilter } from '#Modules/questions/question.filters.js';
 // Listas personales de preguntas (UserQuestionsList del propio usuario). Toda
 // consulta filtra por `user` = id del token: una lista ajena es un 404.
 //
-// Reglas del monolito: hasta 30 preguntas (50 con suscripcion vigente); publicar
+// Reglas del monolito: hasta 30 preguntas (50 con suscripcion vigente, o el tope propio del
+// plan: #Libs/plan_limits.js); publicar
 // exige al menos 10; el slug es nombre + sufijo aleatorio y cambia al renombrar.
 
-const MAX_QUESTIONS_FREE = 30;
-const MAX_QUESTIONS_PREMIUM = 50;
 const MIN_QUESTIONS_PUBLIC = 10;
 const MAX_LISTS = 100;
 
-const maxQuestions = (user) => (isPremium(user) ? MAX_QUESTIONS_PREMIUM : MAX_QUESTIONS_FREE);
 
 const makeSlug = (name) => `${convertSlug(name) || 'lista'}-${randomBytes(6).toString('hex')}`;
 
@@ -66,12 +65,13 @@ const derivedFields = (docs, ids) => {
 };
 
 const assertCanHold = (user, count) => {
-    const max = maxQuestions(user);
+    const max = limitsFor(user).list_questions;
     if (count <= max) return;
+    // Sin plan activo el tope es el base: 403 para que el cliente ofrezca suscribirse. Con plan, 422.
     if (!isPremium(user)) {
-        throw ApiError.subscriptionRequired(`Una lista gratuita admite hasta ${MAX_QUESTIONS_FREE} preguntas. Con una suscripción, hasta ${MAX_QUESTIONS_PREMIUM}.`);
+        throw ApiError.subscriptionRequired(`Una lista admite hasta ${max} preguntas sin suscripción. Con un plan, hasta ${limitsFor({ ...user, suscription: { status: 'activo' } }).list_questions}.`);
     }
-    throw ApiError.validation([{ field: 'questions', message: `Una lista admite como máximo ${MAX_QUESTIONS_PREMIUM} preguntas.` }]);
+    throw ApiError.validation([{ field: 'questions', message: `La lista de preguntas debe tener como máximo ${max} preguntas.` }]);
 };
 
 const assertPublishable = (count) => {
@@ -212,7 +212,7 @@ const refreshDerived = async (user, id) => {
  * seria una via para saltarse el cupo diario de respuestas.
  */
 export const buildPdf = async ({ user, id, includeAnswers }) => {
-    if (includeAnswers && !isPremium(user) && !capabilitiesFor(user).includes(CAPABILITIES.TEACHER_TOOLS)) {
+    if (includeAnswers && !isPremium(user) && !canSeeSolutions(user)) {
         throw ApiError.subscriptionRequired('La clave de respuestas del PDF es para suscriptores.');
     }
 

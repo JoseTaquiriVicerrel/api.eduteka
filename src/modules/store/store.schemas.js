@@ -6,9 +6,9 @@ const strict = { additionalProperties: false };
 // Mismo tope que el carrito de la web (#Controllers/cart.controllers.js).
 export const MAX_CART_ITEMS = 30;
 
-// Metodos con comprobante manual. 'tarjeta' existe en el schema de Order pero no tiene
-// comprobante que subir: no se acepta.
-export const ORDER_PAYMENT_METHODS = ['yape', 'plin', 'transferencia'];
+// Metodos con comprobante manual. 'tarjeta' y 'transferencia' siguen en el schema de Order
+// (pedidos antiguos) pero ya no se aceptan en pedidos nuevos.
+export const ORDER_PAYMENT_METHODS = ['yape', 'plin'];
 
 export const ListProductsQuery = Type.Object({
     type: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),

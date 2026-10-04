@@ -13,6 +13,7 @@ export const getConfig = (req, res) => ok(res, {
     maintenance: settings.app.maintenance,
     web_url: settings.app.webUrl,
     support_whatsapp: settings.app.supportWhatsapp,
+    payment_methods: settings.app.paymentMethods,
 });
 
 const checkMongo = async () => {

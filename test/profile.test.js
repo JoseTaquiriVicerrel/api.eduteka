@@ -101,7 +101,8 @@ describe('perfil', () => {
             const first = await send('patch', '/perfil', user, { account_type: 'Profesor' }).expect(200);
             assert.equal(first.body.data.account_type, 'Profesor');
             assert.equal(first.body.data.account_type_change_available, false);
-            assert.deepEqual(first.body.data.capabilities, ['TEACHER_TOOLS']);
+            assert.ok(first.body.data.capabilities.includes('view_answers_directly'));
+            assert.ok(!first.body.data.capabilities.includes('take_simulacrum'));
 
             const second = await send('patch', '/perfil', user, { account_type: 'Estudiante' }).expect(403);
             assert.equal(second.body.error.code, 'FORBIDDEN');

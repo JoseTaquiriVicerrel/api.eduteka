@@ -6,7 +6,13 @@ import { bootTestApp } from './helpers/boot.js';
 describe('meta y convenciones globales', () => {
     let ctx;
     before(async () => {
-        ctx = await bootTestApp({ APP_MIN_VERSION: '1.4.0', APP_LATEST_VERSION: '1.6.0', SUPPORT_WHATSAPP: '51999999999' });
+        ctx = await bootTestApp({ APP_MIN_VERSION: '1.4.0', APP_LATEST_VERSION: '1.6.0', SUPPORT_WHATSAPP: '51999999999',
+            PAYMENT_YAPE_NUMBER: '931 988 077',
+            PAYMENT_YAPE_HOLDER: 'Eduteka SAC',
+            PAYMENT_YAPE_QR_URL: 'http://localhost/qr_yape.jpeg',
+            PAYMENT_PLIN_HOLDER: 'Sin numero: no sale',
+            PAYMENT_TRANSFERENCIA_NUMBER: '123',
+        });
     });
     after(() => ctx.stop());
 
@@ -20,6 +26,13 @@ describe('meta y convenciones globales', () => {
                 maintenance: false,
                 web_url: 'https://eduteka.test',
                 support_whatsapp: '51999999999',
+                payment_methods: [{
+                    id: 'yape',
+                    label: 'Yape',
+                    number: '931 988 077',
+                    holder: 'Eduteka SAC',
+                    qr_url: 'http://localhost/qr_yape.jpeg',
+                }],
             },
         });
     });

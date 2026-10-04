@@ -33,13 +33,20 @@ describe('capacidades', () => {
     const past = new Date(Date.now() - 86_400_000);
 
     it('estudiante, profesor y administrador', () => {
-        assert.deepEqual(capabilitiesFor({ rol: 'User', account_type: 'Estudiante' }),
-            [CAPABILITIES.USE_PRACTICES, CAPABILITIES.TAKE_SIMULACRUM, CAPABILITIES.TRACK_PROGRESS]);
-        assert.deepEqual(capabilitiesFor({ rol: 'User', account_type: 'Profesor' }), [CAPABILITIES.TEACHER_TOOLS]);
-        assert.ok(capabilitiesFor({ rol: 'Administrador' }).includes(CAPABILITIES.DOWNLOAD_EXAMS));
+        const student = capabilitiesFor({ rol: 'User', account_type: 'Estudiante' });
+        for (const cap of ['answer_questions', 'take_practice', 'take_simulacrum', 'track_progress', 'buy_materials', 'download_materials']) assert.ok(student.includes(cap), cap);
+        assert.ok(!student.includes(CAPABILITIES.VIEW_ANSWERS_DIRECTLY));
+        assert.ok(!student.includes(CAPABILITIES.MANAGE_MATERIALS));
+
+        const teacher = capabilitiesFor({ rol: 'User', account_type: 'Profesor' });
+        assert.deepEqual(teacher.sort(), ['buy_materials', 'create_practice', 'download_materials', 'manage_materials', 'manage_questions', 'manage_templates', 'view_answers_directly']);
+
+        const admin = capabilitiesFor({ rol: 'Administrador' });
+        assert.ok(admin.includes(CAPABILITIES.TAKE_SIMULACRUM) && admin.includes(CAPABILITIES.MANAGE_TEMPLATES));
+        assert.ok(!admin.includes(CAPABILITIES.VIEW_ANSWERS_DIRECTLY));
     });
     it('una cuenta sin tipo se trata como estudiante', () => {
-        assert.ok(capabilitiesFor({ rol: 'User' }).includes(CAPABILITIES.USE_PRACTICES));
+        assert.ok(capabilitiesFor({ rol: 'User' }).includes(CAPABILITIES.TAKE_PRACTICE));
     });
     it('premium exige estado activo Y no vencida; sin end_date es vitalicia', () => {
         assert.equal(hasActiveSuscription({ suscription: { status: 'activo', end_date: future } }), true);
@@ -55,6 +62,18 @@ describe('capacidades', () => {
         const result = serializeSuscription({ status: 'activo', end_date: new Date('2026-01-11T00:00:00Z') }, now);
         assert.equal(result.days_remaining, 10);
         assert.equal(result.active, true);
+    });
+    it('serializeSuscription: can_renew es false solo si ya hay una renovación encadenada que no empieza', () => {
+        const now = new Date('2026-01-01T00:00:00Z');
+        const running = { status: 'activo', start_date: new Date('2025-12-01T00:00:00Z'), end_date: new Date('2026-06-01T00:00:00Z') };
+        const queued = { status: 'activo', start_date: new Date('2026-06-01T00:00:00Z'), end_date: new Date('2026-12-01T00:00:00Z') };
+        const expired = { status: 'Finalizado', start_date: new Date('2025-01-01T00:00:00Z'), end_date: new Date('2025-07-01T00:00:00Z') };
+        const noStart = { status: 'activo', end_date: new Date('2026-06-01T00:00:00Z') };
+
+        assert.equal(serializeSuscription(running, now).can_renew, true);
+        assert.equal(serializeSuscription(queued, now).can_renew, false);
+        assert.equal(serializeSuscription(expired, now).can_renew, true);
+        assert.equal(serializeSuscription(noStart, now).can_renew, true);
     });
     it('serializeUser no filtra campos internos', () => {
         const user = serializeUser({

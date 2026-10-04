@@ -161,7 +161,7 @@ describe('simulacros', () => {
             await api('post', '/simulacro-general/inscribirme', null, person).expect(401);
             const teacher = await createUser(ctx, { account_type: 'Profesor' });
             const res = await api('post', '/simulacro-general/inscribirme', teacher, person).expect(403);
-            assert.equal(res.body.error.code, 'FORBIDDEN');
+            assert.equal(res.body.error.code, 'CAPABILITY_REQUIRED');
         });
 
         it('gratis: queda verificada al instante; fija el area unica; congela el precio', async () => {

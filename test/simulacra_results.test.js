@@ -362,10 +362,12 @@ describe('simulacros: resultados, ranking, reintentos y solucionario', () => {
             const teacher = await createUser(ctx, { account_type: 'Profesor' });
             const refused = await get('/simulacro-areas/solucionario', teacher).expect(403);
             assert.equal(refused.body.error.code, 'SUBSCRIPTION_REQUIRED');
+            assert.deepEqual(refused.body.error.details, { back_slug: 'simulacro-areas' });
 
             await ctx.User.updateOne({ _id: teacher.session.user.id }, { $set: { suscription: { status: 'activo', end_date: new Date(Date.now() + 86_400_000) } } });
             const areaB = (await get('/simulacro-areas/solucionario?area=B', teacher).expect(200)).body.data;
             assert.equal(areaB.area, 'B');
+            assert.equal(areaB.teacher_preview, true);
             assert.deepEqual(areaB.items.map((item) => item.id), ['b3']);
             assert.equal(areaB.items[0].selected, null);
             // Un area inexistente cae a la primera.

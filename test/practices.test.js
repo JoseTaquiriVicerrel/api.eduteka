@@ -47,9 +47,23 @@ describe('practicas', () => {
         const generate = (query, user = student) =>
             request(ctx.app).get(api(`/practicas-area/preguntas${query}`)).set(user ? bearer(user) : {});
 
-        it('exige sesion (401) y una cuenta que practique (403 docentes)', async () => {
+        it('exige sesion (401); el docente la recibe resuelta y sin gastar cupo', async () => {
             await generate('?area=matematica', null).expect(401);
-            await generate('?area=matematica', teacher).expect(403);
+
+            const res = await generate('?area=matematica&count=3', teacher).expect(200);
+            assert.equal(res.body.meta.answers_visible, true);
+            assert.equal(res.body.data.length, 3);
+            for (const question of res.body.data) {
+                assert.equal(question.answers_visible, true);
+                assert.ok(['A', 'B', 'C', 'D', 'E'].includes(question.correct), question.id);
+                assert.ok('explanation' in question);
+            }
+        });
+
+        it('el estudiante nunca recibe la clave ni la bandera', async () => {
+            const res = await generate('?area=matematica&count=3').expect(200);
+            assert.equal(res.body.meta.answers_visible, undefined);
+            assert.ok(res.body.data.every((q) => !('correct' in q) && !('explanation' in q) && !('answers_visible' in q)));
         });
 
         it('valida los parametros: area obligatoria, count 1-50, filtros desconocidos', async () => {
@@ -282,6 +296,19 @@ describe('practicas', () => {
             assert.equal(res.body.data.count_questions, 3); // q4 y 'zzz' no se sirven
             assert.deepEqual(res.body.data.questions.map((q) => q.id), ['q1', 'q2', 'q3']);
             assertNoSecrets(res.body);
+        });
+
+        it('el docente ve la practica resuelta: clave, explicacion y answers_visible', async () => {
+            const res = await detail('algebra-basica', teacher).expect(200);
+            assert.equal(res.body.data.answers_visible, true);
+            const q1 = res.body.data.questions.find((q) => q.id === 'q1');
+            assert.equal(q1.correct, 'B');
+            assert.match(q1.explanation, /Porque sí/);
+            assert.equal(q1.answers_visible, true);
+
+            // Y no puede finalizarla: no genera intentos.
+            const finalize = await request(ctx.app).post(api('/practicas/algebra-basica/finalizar')).set(bearer(teacher)).send({ answers: {}, time: 1 }).expect(403);
+            assert.equal(finalize.body.error.code, 'CAPABILITY_REQUIRED');
         });
 
         it('una lista privada solo la ve su dueño; para el resto no existe', async () => {

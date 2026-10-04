@@ -6,7 +6,11 @@
     <table role="presentation" width="480" cellspacing="0" cellpadding="0" style="max-width:480px;background:#ffffff;border-radius:8px;padding:32px;"><tr><td>
       <h1 style="margin:0 0 16px;font-size:22px;">Recibimos tu pedido</h1>
       <p style="margin:0 0 16px;line-height:1.5;">Hola{{#if username}} {{username}}{{/if}}, registramos tu pedido por <strong>S/ {{total}}</strong>.</p>
+      {{#if verified}}
+      <p style="margin:0 0 16px;line-height:1.5;">Tu pago fue verificado. Ya puedes descargar tus archivos desde la app, en <strong>Mis recursos</strong>.</p>
+      {{else}}
       <p style="margin:0 0 16px;line-height:1.5;">Estamos revisando tu comprobante de pago. Cuando quede verificado podrás descargar tus archivos desde la app, en <strong>Mis recursos</strong>.</p>
+      {{/if}}
       <p style="margin:0;color:#616e7c;font-size:12px;">Pedido {{order_id}}</p>
     </td></tr></table>
   </td></tr></table>
