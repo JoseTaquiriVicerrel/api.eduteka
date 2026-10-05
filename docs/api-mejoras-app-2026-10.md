@@ -80,10 +80,10 @@ Estado actual:
 - Pendiente fuera de este repo: el panel del monolito proyecta `dni: '$dni'` en los listados de participantes (`simulacrum.admin.controllers.js`, `simulacrum.controllers.js`); con inscripciones nuevas saldrá vacío. Confirmar que no sea clave para exportar o conciliar ranking.
 - Una vez que ninguna versión de la app envíe `dni`, se puede quitar el campo del esquema.
 
-### 3.2 Nombre completo autocompletado (opcional, recomendado)
+### 3.2 Nombre completo autocompletado (implementado)
 La app ya recibe `fullname` en `GET /perfil` y `GET /auth/me`, y el servicio ya guarda el nombre usado en la inscripción en el usuario (`UserModel.updateOne(..., { $set: { fullname } })`), así que el prellenado puede hacerse solo en la app.
 
-Mejora opcional del API: hacer `fullname` **opcional en el body** cuando `user.fullname` ya existe, y usarlo como valor por defecto:
+Implementado: `fullname` es **opcional en el body** cuando `user.fullname` ya existe, y usarlo como valor por defecto:
 
 ```js
 const fullname = body.fullname ?? user.fullname;
@@ -171,7 +171,13 @@ Las «áreas» que se ven en la lista y arriba del detalle de un examen son `sub
 Lo medido en el API (cuenta de prueba, `GET /simulacros/:slug/solucionario`):
 
 | Simulacro | Sin `?math=svg` | Con `?math=svg` |
-|---|---|---|
+|
+
+**Resultado de la verificación (implementado)**
+- `iniciar?math=svg` convierte las fórmulas (banco general y prospecto); `reintentar` **no devuelve HTML** (solo `attempt_id` y `attempt_number`): las fórmulas del nuevo intento salen en el `iniciar` siguiente. Ambos casos tienen prueba en `test/math_coverage.test.js`.
+- `scripts/warm_math_cache.js` ahora lee, para los simulacros, lo que el intento **sirve** (`loadQuestionSet`) además del snapshot, así que cubre los de prospecto. Nuevo `--slug=<simulacro>` para precalentar uno solo (p. ej. al publicarlo). Este repo no publica simulacros: el paso de publicación vive en el monolito y debería lanzar ese script.
+
+---|---|---|
 | BECA 18 2023 | 56 fórmulas en LaTeX | 0 en LaTeX, 56 `<img class="math">` |
 | UNSM 2026-II N1 | 174 | 0 en LaTeX, 174 `<img>` |
 

@@ -3,6 +3,7 @@ import ExamModel from '#Models/exam_model.js';
 import QuestionModel from '#Models/question_model.js';
 import SimulacrumModel from '#Models/simulacrum_model.js';
 import { practicableFilter } from '#Modules/questions/question.filters.js';
+import { loadQuestionSet } from '#Modules/simulacra/simulacrum.questions.js';
 import { classifyFormula, extractFormulas, mathHash } from '#Libs/math_svg.js';
 
 // Que formulas hay en el banco: base de los scripts de precalentamiento y limpieza
@@ -39,7 +40,28 @@ const QUERIES = {
     questions: () => QuestionModel.find(practicableFilter(), { question: 1, resolution: 1, options: 1, dependence: 1 }),
     blocks: () => BlockModel.find({}, { text: 1, texto: 1 }),
     exams: () => ExamModel.find({ verified: true }, { general_items: 1, areas: 1 }),
-    simulacra: () => SimulacrumModel.find({ verified: true, state: true }, { general_items: 1, areas: 1 }),
+    simulacra: ({ slug } = {}) => SimulacrumModel.find(
+        { verified: true, state: true, ...(slug ? { slug } : {}) },
+        { general_items: 1, areas: 1, prospect: 1, general: 1 },
+    ),
+};
+
+/**
+ * HTML de las preguntas que un simulacro SIRVE de verdad (`loadQuestionSet`, la misma lista
+ * que usan iniciar, calificar y el solucionario). En los de prospecto el snapshot son solo
+ * referencias {itype, id}: sus formulas viven en `questions`/`blocks` y, sin esto, el primer
+ * postulante las veria en LaTeX por el presupuesto de tiempo de ?math=svg.
+ */
+export const servedFragments = async (simulacrum) => {
+    const keys = Object.keys(simulacrum.areas ?? {});
+    const fragments = [];
+    for (const area of keys.length ? keys : [undefined]) {
+        const { items } = await loadQuestionSet(simulacrum, area);
+        for (const item of items) {
+            fragments.push(item.question, item.resolution, item.text, ...(item.options ?? []).map((option) => option.text));
+        }
+    }
+    return fragments;
 };
 
 /** Fragmentos de HTML (solo strings no vacios) de un documento de la fuente. */
@@ -52,20 +74,21 @@ export const scanFormulas = (html) => extractFormulas(html).map((formula) => ({ 
  * Recorre las fuentes y reune las formulas DISTINTAS (mismo TeX y modo = una sola).
  * @returns {Promise<{ formulas: Map<string, { tex, mode, refs: number, first: string }>, documents: number, fragments: number, occurrences: number }>}
  */
-export const collectFormulas = async ({ sources = SOURCES, limit = 0, onDocument } = {}) => {
+export const collectFormulas = async ({ sources = SOURCES, limit = 0, slug = null, onDocument } = {}) => {
     const formulas = new Map();
     let documents = 0;
     let fragments = 0;
     let occurrences = 0;
 
     for (const source of sources) {
-        let query = QUERIES[source]().lean();
+        let query = QUERIES[source]({ slug }).lean();
         if (limit > 0) query = query.limit(limit);
 
         for await (const doc of query.cursor()) {
             documents += 1;
             onDocument?.(source, documents);
-            for (const html of fragmentsOf(source, doc)) {
+            const htmlFragments = source === 'simulacra' ? [...fragmentsOf(source, doc), ...(await servedFragments(doc))] : fragmentsOf(source, doc);
+            for (const html of htmlFragments.filter((fragment) => typeof fragment === 'string' && fragment.length > 0)) {
                 fragments += 1;
                 for (const { tex, mode } of scanFormulas(html)) {
                     occurrences += 1;

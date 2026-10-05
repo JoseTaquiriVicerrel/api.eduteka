@@ -142,6 +142,28 @@ describe('?math=svg: cobertura de todos los endpoints con HTML de preguntas', ()
         assert.ok(solutions.body.data.items.some((i) => i.explanation), 'el solucionario trae explicaciones');
     });
 
+    it('simulacros: reintentar no entrega HTML; las formulas del nuevo intento salen en iniciar', async () => {
+        const user = await createUser(ctx);
+        await post('/simulacros/simulacro-general/inscribirme', user, person).expect(201);
+        const first = await post('/simulacros/simulacro-general/iniciar', user).expect(200);
+        await post(`/simulacros/intentos/${first.body.data.attempt_id}/finalizar`, user, {}).expect(200);
+
+        const retry = await post('/simulacros/simulacro-general/reintentar?math=svg', user).expect(201);
+        assert.deepEqual(Object.keys(retry.body.data).sort(), ['attempt_id', 'attempt_number']);
+
+        const second = await post('/simulacros/simulacro-general/iniciar?math=svg', user).expect(200);
+        assert.equal(second.body.data.attempt_number, 2);
+        assertConverted(second.body.data.items, 6);
+    });
+
+    it('simulacros de prospecto: iniciar convierte formulas que el snapshot no trae', async () => {
+        await ctx.mongoose.connection.db.collection('questions').updateOne({ _id: 'pq1' }, { $set: { question: R`<p>Prospecto \(z\)</p>`, options: { A: R`\(1\)`, B: R`\(2\)` } } });
+        const user = await createUser(ctx);
+        await post('/simulacros/simulacro-prospecto/inscribirme', user, { ...person, area: 'A' }).expect(201);
+        const started = await post('/simulacros/simulacro-prospecto/iniciar?math=svg', user).expect(200);
+        assertConverted(started.body.data.items.filter((item) => item.id === 'pq1'), 3);
+    });
+
     it('mis-listas: el detalle de una lista propia', async () => {
         const created = await post('/mis-listas', student, { name: 'Mi lista', question_ids: ['qx'] }).expect(201);
         const res = await get(`/mis-listas/${created.body.data.id}?math=svg`, student).expect(200);

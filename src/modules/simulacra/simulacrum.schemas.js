@@ -17,7 +17,8 @@ export const AttemptParams = Type.Object({ attempt_id: Id }, strict);
 
 // Tambien llega como campos de un multipart (todo texto): por eso `area`/`career` son strings.
 export const EnrollBody = Type.Object({
-    fullname: Type.String({ minLength: 3, maxLength: 150, pattern: '^\\S.*\\S$' }),
+    // Opcional si el perfil ya tiene `fullname`: el servicio usa ese como valor por defecto.
+    fullname: Type.Optional(Type.String({ minLength: 3, maxLength: 150, pattern: '^\\S.*\\S$' })),
     // Obsoleto: el DNI es un dato sensible y ya no se pide. Se tolera solo para que las apps
     // antiguas (que aun lo envian) no reciban 422; se descarta sin validarlo ni guardarlo.
     dni: Type.Optional(Type.String({ maxLength: 32 })),

@@ -219,6 +219,31 @@ describe('simulacros', () => {
             assert.equal((await enrollmentOf(legacy, 'simulacro-general')).dni, undefined);
         });
 
+        it('sin fullname usa el del perfil; sin ninguno -> 422 en fullname', async () => {
+            const { fullname, dni, ...rest } = person;
+            const noName = await createUser(ctx);
+            await ctx.User.updateOne({ _id: noName.session.user.id }, { $unset: { fullname: 1 } });
+            const res = await api('post', '/simulacro-general/inscribirme', noName, rest).expect(422);
+            assert.equal(res.body.error.details[0].field, 'fullname');
+
+            const named = await createUser(ctx);
+            await ctx.User.updateOne({ _id: named.session.user.id }, { $set: { fullname: 'Luis Rojas Díaz' } });
+            await api('post', '/simulacro-general/inscribirme', named, rest).expect(201);
+            assert.equal((await enrollmentOf(named, 'simulacro-general')).fullname, 'Luis Rojas Díaz');
+
+            // El del body manda y actualiza el perfil.
+            const both = await createUser(ctx);
+            await ctx.User.updateOne({ _id: both.session.user.id }, { $set: { fullname: 'Nombre Viejo' } });
+            await api('post', '/simulacro-general/inscribirme', both, { fullname }).expect(201);
+            assert.equal((await enrollmentOf(both, 'simulacro-general')).fullname, fullname);
+        });
+
+        it('un fullname del perfil que no cumple las reglas tambien es 422', async () => {
+            const user = await createUser(ctx);
+            await ctx.User.updateOne({ _id: user.session.user.id }, { $set: { fullname: 'A' } });
+            await api('post', '/simulacro-general/inscribirme', user, {}).expect(422);
+        });
+
         it('valida los datos', async () => {
             const user = await createUser(ctx);
             await api('post', '/simulacro-general/inscribirme', user, {}).expect(422);

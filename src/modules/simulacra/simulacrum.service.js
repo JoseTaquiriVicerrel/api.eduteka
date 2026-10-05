@@ -233,10 +233,22 @@ export const getSimulacrumDetail = async ({ slug, user }) => {
 
 // --- Inscripcion ------------------------------------------------------------
 
-export const enroll = async ({ user, slug, body, capture }) => {
+// El nombre del body manda; si no llega se usa el del perfil, con las mismas reglas que el esquema.
+const FULLNAME_PATTERN = /^\S.*\S$/;
+const resolveFullname = (body, user) => {
+    const fullname = body.fullname ?? user.fullname;
+    if (typeof fullname !== 'string' || fullname.length < 3 || fullname.length > 150 || !FULLNAME_PATTERN.test(fullname)) {
+        throw ApiError.validation([{ field: 'fullname', message: 'Escribe tu nombre completo.' }]);
+    }
+    return fullname;
+};
+
+export const enroll = async ({ user, slug, body: input, capture }) => {
     const simulacrum = await SimulacrumModel.findOne({ slug, ...VISIBLE }).lean().exec();
     if (!simulacrum) throw ApiError.notFound('No encontramos ese simulacro.');
     if (simulacrum.for_register !== true) throw ApiError.forbidden('Ha finalizado el plazo de inscripción a este simulacro.');
+
+    const body = { ...input, fullname: resolveFullname(input, user) };
 
     const price = Number(simulacrum.price) || 0;
     if (price > 0 && !settings.app.paymentsEnabled) {

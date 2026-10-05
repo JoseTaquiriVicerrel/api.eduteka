@@ -49,7 +49,12 @@ describe('precalentamiento y limpieza de la cache de formulas', () => {
             },
             { _id: 'ex2', verified: false, general_items: [{ id: 'z', question: R`\(no4\)` }] },
         ]);
+        // Simulacro de prospecto: el snapshot solo guarda referencias; la formula `p1` vive en una
+        // pregunta NO practicable (verified:false) y solo la alcanza lo que el intento sirve.
+        await db.collection('prospects').insertOne({ _id: 'prw', exam_unique: false });
+        await db.collection('questions').insertOne({ _id: 'wp1', verified: false, rpta: 'A', question: R`<p>\(p1\)</p>`, options: { A: R`\(p2\)` } });
         await db.collection('simulacrums').insertMany([
+            { _id: 'si3', slug: 'sim-prospecto', verified: true, state: true, general: false, prospect: 'prw', areas: { A: { questions: [{ itype: 'question', id: 'wp1' }] } } },
             { _id: 'si1', verified: true, state: true, general_items: [{ id: 's', question: R`\(j\)` }], areas: { I: { questions: [{ id: 't', question: R`\(k\)`, resolution: R`\(a\)` }] } } },
             { _id: 'si2', verified: true, state: false, general_items: [{ id: 'u', question: R`\(no5\)` }] },
         ]);
@@ -64,10 +69,16 @@ describe('precalentamiento y limpieza de la cache de formulas', () => {
         const scan = await catalog.collectFormulas();
         const tex = [...scan.formulas.values()].map((f) => f.tex).sort();
         // a (repetida en varias fuentes), b..k y la invalida; ninguna "no1".."no5".
-        assert.deepEqual(tex, ['\\frac{', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k']);
-        assert.equal(scan.documents, 5, 'w1, w5, bl1, ex1 y si1');
+        assert.deepEqual(tex, ['\\frac{', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'p1', 'p2']);
+        assert.equal(scan.documents, 6, 'w1, w5, bl1, ex1, si1 y si3');
         const a = [...scan.formulas.values()].find((f) => f.tex === 'a' && f.mode === 'inline');
         assert.ok(a.refs >= 4, 'a aparece en varias fuentes y se cuenta una sola vez');
+    });
+
+    it('simulacros de prospecto: las formulas salen de lo que sirve el intento, no del snapshot', async () => {
+        const scan = await catalog.collectFormulas({ sources: ['simulacra'], slug: 'sim-prospecto' });
+        assert.equal(scan.documents, 1);
+        assert.deepEqual([...scan.formulas.values()].map((f) => f.tex).sort(), ['p1', 'p2']);
     });
 
     it('--source y limit acotan la lectura', async () => {
@@ -146,7 +157,7 @@ describe('precalentamiento y limpieza de la cache de formulas', () => {
         it('warm_math_cache --dry-run cuenta y no escribe', async () => {
             const before = (await fs.readdir(mathDir)).length;
             const { stdout } = await script('warm_math_cache.js', '--dry-run');
-            assert.match(stdout, /11 distintas|12 distintas/);
+            assert.match(stdout, /14 distintas/);
             assert.match(stdout, /--dry-run: no se convirtio/);
             assert.equal((await fs.readdir(mathDir)).length, before);
         });
