@@ -48,14 +48,22 @@ export const listQuestions = async ({ area, topic, difficulty, institution, q, p
 
 export const getTopics = async ({ area, institution = null, withResolution = false }) => {
     const { _id: areaId } = await resolveArea(area);
+    const base = practicableFilter({ areaId, institution, withResolution });
 
-    const topics = await QuestionModel.aggregate([
-        { $match: { ...practicableFilter({ areaId, institution, withResolution }), topic: { $exists: true, $nin: [null, ''] } } },
-        { $group: { _id: '$topic', count: { $sum: 1 } } },
-        { $sort: { count: -1, _id: 1 } },
-    ]).exec();
+    const [topics, totalQuestions] = await Promise.all([
+        QuestionModel.aggregate([
+            { $match: { ...base, topic: { $exists: true, $nin: [null, ''] } } },
+            { $group: { _id: '$topic', count: { $sum: 1 } } },
+            { $sort: { count: -1, _id: 1 } },
+        ]).exec(),
+        // Mismo filtro que `GET /areas`: los temas solo cubren las preguntas que tienen tema.
+        QuestionModel.countDocuments(base).exec(),
+    ]);
 
-    return topics.map((item) => ({ topic: item._id, count: item.count }));
+    const items = topics.map((item) => ({ topic: item._id, count: item.count }));
+    const withTopic = items.reduce((sum, item) => sum + item.count, 0);
+
+    return { items, meta: { total_questions: totalQuestions, with_topic: withTopic, without_topic: totalQuestions - withTopic } };
 };
 
 export const getQuestion = async (id, user = null) => {

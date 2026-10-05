@@ -154,7 +154,7 @@ Flujo real de la web: inscribirse → esperar inicio → rendir → finalizar �
 |---|---|---|---|
 | 🔲 | `GET /simulacros?institution=&q=&page=` | opcional | Lista con estado (`upcoming/live/finished`), fechas, `enrolled` |
 | 🔲 | `GET /simulacros/:slug` | opcional | Detalle, estructura por área, reglas |
-| 🔲 | `POST /simulacros/:slug/inscribirme` | Bearer + plan | `{fullname, dni, area, career}` (+ captura opcional multipart) |
+| 🔲 | `POST /simulacros/:slug/inscribirme` | Bearer + plan | `{fullname, area, career}` (`dni` obsoleto: se ignora) (+ captura opcional multipart) |
 | 🔲 | `POST /simulacros/:slug/iniciar` | Bearer | Crea `SimulacrumAttempt`; devuelve `attempt_id`, **`start_exam`, `end_exam` (hora del servidor)**, preguntas sin respuesta |
 | 🔲 | `PUT /simulacros/intentos/:attempt_id/respuestas` | Bearer | `{answers:{q:"A"}}` autoguardado (idempotente, `rateLimit('write')`) |
 | 🔲 | `POST /simulacros/intentos/:attempt_id/finalizar` | Bearer | Cierra y corrige. Si `now > end_exam` corrige con lo guardado |

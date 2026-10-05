@@ -9,11 +9,14 @@ export const list = asyncHandler(async (req, res) => {
     return ok(res, items, answersVisible ? { ...meta, answers_visible: true } : meta);
 });
 
-export const topics = asyncHandler(async (req, res) => ok(res, await questions.getTopics({
-    area: req.query.area,
-    institution: req.query.institution ?? null,
-    withResolution: req.query.with_resolution === true,
-})));
+export const topics = asyncHandler(async (req, res) => {
+    const { items, meta } = await questions.getTopics({
+        area: req.query.area,
+        institution: req.query.institution ?? null,
+        withResolution: req.query.with_resolution === true,
+    });
+    return ok(res, items, meta);
+});
 
 export const detail = asyncHandler(async (req, res) => ok(res, await questions.getQuestion(req.params.id, req.user)));
 

@@ -123,12 +123,42 @@ describe('simulacros', () => {
             assert.equal(data.ask_career, true);
             assert.deepEqual(data.areas.map((area) => [area.key, area.questions_count]), [['A', 2], ['B', 1], ['C', 0]]);
             assert.deepEqual(data.areas[0].careers, ['Sistemas', 'Civil']);
+            assert.deepEqual(data.areas.map((area) => area.careers_count), [2, data.areas[1].careers.length, data.areas[2].careers.length]);
+            assert.equal(data.questions_total, null);
             assert.deepEqual(data.scoring, { correct: 4, incorrect: -1, not_answered: 0 });
             assert.equal(data.status, 'live');
             assert.equal(data.enrollment, null);
             assert.ok(data.server_time);
             assertNoSecrets(res.body);
             assert.ok(!JSON.stringify(res.body).includes('"questions":'));
+        });
+
+        it('questions_total coincide con las preguntas que sirve /iniciar (banco general)', async () => {
+            const user = await enrolled('simulacro-general');
+            const { data } = (await get('/simulacro-general').expect(200)).body;
+            const started = (await start('simulacro-general', user).expect(200)).body.data;
+            const served = (started.items ?? started.questions).filter((item) => item.kind !== 'reading').length;
+
+            assert.equal(data.questions_total, served);
+            assert.ok(data.areas.every((area) => area.questions_count === served));
+        });
+
+        it('prospecto: cuenta solo preguntas (no bloques) y no deja un 0 engañoso', async () => {
+            const { data } = (await get('/simulacro-prospecto').expect(200)).body;
+            assert.deepEqual(data.areas.map((area) => [area.key, area.questions_count, area.careers_count]), [['A', 2, 0]]);
+            assert.equal(data.questions_total, 2);
+        });
+
+        it('prospecto sin documento: questions_count y questions_total son null', async () => {
+            const prospect = await db('prospects').findOne({ _id: 'pr1' });
+            await db('prospects').deleteOne({ _id: 'pr1' });
+            try {
+                const { data } = (await get('/simulacro-prospecto').expect(200)).body;
+                assert.equal(data.areas[0].questions_count, null);
+                assert.equal(data.questions_total, null);
+            } finally {
+                await db('prospects').insertOne(prospect);
+            }
         });
 
         it('un simulacro con una sola area no pide area ni carrera', async () => {
@@ -173,15 +203,25 @@ describe('simulacros', () => {
             assert.equal(res.body.data.career, null);
             assert.equal(res.body.data.amount_paid, 0);
             const stored = await enrollmentOf(user, 'simulacro-general');
-            assert.equal(stored.dni, '12345678');
+            assert.equal(stored.dni, undefined);
             assert.equal(stored.state, true);
             assert.equal((await ctx.User.findById(user.session.user.id)).fullname, 'Ana Pérez López');
+        });
+
+        it('no pide DNI; si una app antigua lo envia se ignora y nunca se guarda', async () => {
+            const { dni, ...withoutDni } = person;
+            const fresh = await createUser(ctx);
+            await api('post', '/simulacro-general/inscribirme', fresh, withoutDni).expect(201);
+            assert.equal((await enrollmentOf(fresh, 'simulacro-general')).dni, undefined);
+
+            const legacy = await createUser(ctx);
+            await api('post', '/simulacro-general/inscribirme', legacy, { ...withoutDni, dni: '123' }).expect(201);
+            assert.equal((await enrollmentOf(legacy, 'simulacro-general')).dni, undefined);
         });
 
         it('valida los datos', async () => {
             const user = await createUser(ctx);
             await api('post', '/simulacro-general/inscribirme', user, {}).expect(422);
-            await api('post', '/simulacro-general/inscribirme', user, { ...person, dni: '123' }).expect(422);
             await api('post', '/simulacro-general/inscribirme', user, { ...person, fullname: 'A' }).expect(422);
             await api('post', '/simulacro-general/inscribirme', user, { ...person, extra: 1 }).expect(422);
             assert.equal(await db('usersimulacrums').countDocuments({ user_id: user.session.user.id }), 0);

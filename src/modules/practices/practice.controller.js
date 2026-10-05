@@ -4,11 +4,14 @@ import { pageMeta } from '#Libs/paginate.js';
 import { getTopics } from '#Modules/questions/question.service.js';
 import * as practices from './practice.service.js';
 
-export const areaTopics = asyncHandler(async (req, res) => ok(res, await getTopics({
-    area: req.query.area,
-    institution: req.query.institution ?? null,
-    withResolution: req.query.with_resolution === true,
-})));
+export const areaTopics = asyncHandler(async (req, res) => {
+    const { items, meta } = await getTopics({
+        area: req.query.area,
+        institution: req.query.institution ?? null,
+        withResolution: req.query.with_resolution === true,
+    });
+    return ok(res, items, meta);
+});
 
 export const areaQuestions = asyncHandler(async (req, res) => {
     const { questions, meta } = await practices.generateAreaPractice({

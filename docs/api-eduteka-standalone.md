@@ -251,7 +251,7 @@ Solo se sirven preguntas `verified:true, state:true, origin != 'Docente'`.
 `title, description, slug, institution, areas, exam_id, price, start_date, end_date, date_program, duration (min), time, questions (estructura por área), score, score_correct, score_incorrect, score_not_answered, calification_type, general, automatic, finished, for_register, public_results, verified, state, image_post`.
 
 ### UserSimulacrum *(inscripción)*
-`user_id, simulacrum_id, dni, fullname, area, career, screenshot (comprobante), amount_paid, state, status_reason, finished, public_results, attempt_number, score, score_conversion, official_score, official_score_conversion`.
+`user_id, simulacrum_id, fullname, area, career, screenshot (comprobante), amount_paid, state, status_reason, finished, public_results, attempt_number, score, score_conversion, official_score, official_score_conversion`.
 
 ### SimulacrumAttempt
 `user_simulacrum_id, user_id, simulacrum_id, attempt_number, area, career, answers{}, start_exam, end_exam, exam_finished, time, score, score_conversion, results, questions_correct, questions_incorrect, questions_not_answered`.
@@ -335,7 +335,7 @@ Respuesta de corrección:
 |---|---|---|
 | 🌐 | `GET /simulacros?institution=&q=&page=` | Lista con `status: upcoming\|live\|finished` y `enrolled` si hay sesión |
 | 🌐 | `GET /simulacros/:slug` | Detalle, reglas, estructura por área, puntajes |
-| 🔑 | `POST /simulacros/:slug/inscribirme` | `{fullname, dni, area, career}` (+ `screenshot` multipart si el simulacro es de pago) |
+| 🔑 | `POST /simulacros/:slug/inscribirme` | `{fullname, area, career}` (`dni` obsoleto: se acepta y se ignora, no se guarda) (+ `screenshot` multipart si el simulacro es de pago) |
 | 🔑 | `POST /simulacros/:slug/iniciar` | Crea `SimulacrumAttempt`; devuelve `attempt_id`, **`start_exam`, `end_exam` (hora del servidor)**, `server_time`, preguntas sin clave |
 | 🔑 | `PUT /simulacros/intentos/:attempt_id/respuestas` | `{answers:{q:"A"}}` autoguardado, idempotente (`write`) |
 | 🔑 | `POST /simulacros/intentos/:attempt_id/finalizar` | Cierra y corrige. Si `now > end_exam` corrige con lo guardado |

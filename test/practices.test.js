@@ -41,6 +41,16 @@ describe('practicas', () => {
                 { topic: 'Geometría', count: 1 },
             ]);
         });
+
+        it('meta: total practicable (igual que /areas), con tema y sin tema', async () => {
+            const { meta } = (await request(ctx.app).get(api('/practicas-area/temas?area=matematica')).expect(200)).body;
+            const areas = (await request(ctx.app).get(api('/areas')).expect(200)).body.data;
+            const count = areas.find((area) => area.slug === 'matematica').count;
+
+            assert.equal(meta.total_questions, count);
+            assert.equal(meta.with_topic, 4);
+            assert.equal(meta.with_topic + meta.without_topic, meta.total_questions);
+        });
     });
 
     describe('GET /practicas-area/preguntas', () => {

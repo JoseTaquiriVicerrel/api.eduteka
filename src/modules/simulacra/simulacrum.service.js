@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import ProspectModel from '#Models/prospect_model.js';
 import SimulacrumModel from '#Models/simulacrum_model.js';
 import UserModel from '#Models/user_model.js';
 import UserSimulacrumModel from '#Models/user_simulacrum_model.js';
@@ -17,7 +18,7 @@ import { archiveAttempt, attemptFilter, listAttempts, startNewAttempt } from './
 import { gradeAttempt } from './simulacrum.grading.js';
 import { loadQuestionSet, questionIdSet } from './simulacrum.questions.js';
 import {
-    attemptExpired, attemptNumberOf, enrollmentState, freezesOfficialScore, isRetryInProgress,
+    attemptExpired, attemptNumberOf, enrollmentState, freezesOfficialScore, isGeneral, isRetryInProgress,
     retryBlockedReason, simulacrumStatus, startWindowViolation,
 } from './simulacrum.state.js';
 
@@ -37,7 +38,7 @@ const LIGHT_PIPELINE = [
             title: 1, slug: 1, description: 1, image_post: 1, institution: 1, price: 1, duration: 1, automatic: 1,
             finished: 1, general: 1, verified: 1, state: 1, start_date: 1, end_date: 1, date_program: 1, for_register: 1,
             public_results: 1, score_correct: 1, score_incorrect: 1, score_not_answered: 1, prospect: 1, created_at: 1,
-            general_count: { $size: { $ifNull: ['$general_items', []] } },
+            general_count: { $size: { $filter: { input: { $ifNull: ['$general_items', []] }, cond: { $eq: ['$$this.itype', 'question'] } } } },
             areas: {
                 $arrayToObject: {
                     $map: {
@@ -49,7 +50,7 @@ const LIGHT_PIPELINE = [
                                 description: '$$area.v.description',
                                 title: '$$area.v.title',
                                 careers: { $ifNull: ['$$area.v.careers', []] },
-                                questions_count: { $size: { $ifNull: ['$$area.v.questions', []] } },
+                                questions_count: { $size: { $filter: { input: { $ifNull: ['$$area.v.questions', []] }, cond: { $eq: ['$$this.itype', 'question'] } } } },
                             },
                         },
                     },
@@ -166,6 +167,38 @@ export const listSimulacra = async ({ institution, q, status, page, limit, user 
     };
 };
 
+// Preguntas que de verdad rinde el postulante, con el mismo criterio que `questionSource`:
+// el banco general del simulacro o las del area. En prospectos solo el documento del
+// prospecto (`exam_unique`) dice cual de los dos; si ya no existe el numero no es fiable
+// y se devuelve null en vez de un 0 engañoso.
+const questionCounts = async (simulacrum) => {
+    const generalCount = simulacrum.general_count ?? 0;
+    let usesGeneral;
+    let reliable = true;
+
+    if (simulacrum.prospect) {
+        const prospect = await ProspectModel.findById(simulacrum.prospect, { exam_unique: 1 }).lean().exec();
+        usesGeneral = prospect?.exam_unique === true;
+        reliable = prospect !== null;
+    } else {
+        usesGeneral = isGeneral(simulacrum) && generalCount > 0;
+    }
+
+    const perArea = (key, area) => {
+        if (!reliable) return null;
+        return usesGeneral ? generalCount : (area.questions_count ?? 0);
+    };
+
+    let total = null;
+    if (reliable) {
+        const distinct = new Set(Object.entries(simulacrum.areas ?? {}).map(([key, area]) => perArea(key, area)));
+        if (usesGeneral) total = generalCount;
+        else if (distinct.size === 1) [total] = distinct;
+    }
+
+    return { perArea, total };
+};
+
 export const getSimulacrumDetail = async ({ slug, user }) => {
     const now = new Date();
     const simulacrum = await findLight(slug);
@@ -174,6 +207,7 @@ export const getSimulacrumDetail = async ({ slug, user }) => {
         : null;
 
     const options = getSimulacrumAreaOptions(simulacrum);
+    const counts = await questionCounts(simulacrum);
 
     return {
         ...serializeSummary(simulacrum, user ? enrollment : undefined, now),
@@ -183,8 +217,10 @@ export const getSimulacrumDetail = async ({ slug, user }) => {
             title: area.title ?? null,
             description: area.description ?? null,
             careers: area.careers ?? [],
-            questions_count: area.questions_count ?? 0,
+            careers_count: (area.careers ?? []).length,
+            questions_count: counts.perArea(key, area),
         })),
+        questions_total: counts.total,
         scoring: {
             correct: simulacrum.score_correct ?? null,
             incorrect: simulacrum.score_incorrect ?? null,
@@ -260,7 +296,6 @@ const createEnrollment = async ({ user, simulacrum, body, capture, price, area, 
         user_id: user._id,
         simulacrum_id: simulacrum._id,
         fullname: body.fullname,
-        dni: body.dni,
         area,
         career,
         // El precio vigente se congela: si luego cambia, los ingresos ya reportados no se mueven.
