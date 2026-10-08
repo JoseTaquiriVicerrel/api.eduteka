@@ -16,6 +16,8 @@ import profileRoutes from './profile/profile.routes.js';
 import simulacrumRoutes from './simulacra/simulacrum.routes.js';
 import { orderRouter, productRouter, storeRouter } from './store/store.routes.js';
 import subscriptionRoutes from './subscriptions/subscription.routes.js';
+import materialRoutes from './materials/material.routes.js';
+import teacherRoutes from './teacher/teacher.routes.js';
 import progressRoutes from './progress/progress.routes.js';
 
 // Router de /api/v1. El orden importa: primero lo barato (limites, version,
@@ -48,6 +50,8 @@ export function buildV1Router() {
     router.use('/tienda', storeRouter);
     router.use('/pedidos', orderRouter);
     router.use('/suscripciones', subscriptionRoutes);
+    router.use('/mis-materiales', materialRoutes);
+    router.use('/docente', teacherRoutes);
 
     return router;
 }

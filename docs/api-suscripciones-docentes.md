@@ -262,8 +262,9 @@ Las herramientas de creación de la web (banco propio, materiales, plantillas) l
 
 | | Ruta | Descripción |
 |---|---|---|
-| 🔑 | `GET /mis-materiales?page=` | `{id, title, created_at, download_url}` de los materiales que el usuario generó en la web |
-| 🔑 | `GET /mis-materiales/:id/descargar` | Binario. Solo el dueño (`created_by == uid`). Registra `Download{source:'material'}` |
+| 🔑 | `GET /mis-materiales?page=&limit=` | Materiales que el usuario generó en la web (**implementado**): `{id, title, type_file, active, size, available, created_at, download_url}`. Se listan todos, también los desactivados (`active:false`); los borradores sin archivo no. `meta.quota = {limit, used, active, remaining}`: `used` cuenta también los desactivados |
+| 🔑 | `GET /mis-materiales/:id/descargar` | Binario (**implementado**). Solo el dueño (`created_by == uid`); el material de otro, un borrador o un archivo que falta responden `404`. Registra `Download{source:'material'}` |
+| 🔑 Profesor | `GET /docente/resumen` | Tablero informativo (**implementado**): `{questions:{count}, practices:{count, max_questions}, materials:{count, active, limit}, templates:{count, limit}}`. Cuenta solo lo propio; `403` si no es Profesor |
 | 🔑 | `GET /descargas` | Archivos a los que tiene derecho: `{id, name, type_file, size, source:'order'\|'exam'\|'list'\|'material', download_url}` |
 | 🔑 | `GET /descargas/pedidos/:order_id/:product_id/:file` | Binario. Exige pedido `verified` del usuario |
 
