@@ -62,7 +62,7 @@ try {
             for (const item of report.failed.slice(0, 20)) console.log(`  [${item.first}] ${item.tex.slice(0, 70)}  ->  ${item.error}`);
             if (args.failures && args.failures !== true) {
                 const rows = ['origen,modo,error,tex', ...report.failed.map((item) => [item.first, item.mode, item.error, item.tex].map(csvCell).join(','))];
-                await fs.writeFile(path.resolve(args.failures), `﻿${rows.join('\n')}\n`);
+                await fs.writeFile(path.resolve(args.failures), `\uFEFF${rows.join('\n')}\n`);
                 console.log(`\nTodas las fallidas (${report.failed.length}) guardadas en ${path.resolve(args.failures)}`);
             }
             if (args.strict) exitCode = 1;

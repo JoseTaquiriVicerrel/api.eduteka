@@ -1,6 +1,3 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import crypto from "crypto";
 
 const opt_options = (options) => {
 
@@ -225,11 +222,6 @@ const get_template_option = (opciones, lgt = 8) => {
   return templateA;
 }
 
-const base64_encode = (file) => {
-  let bitmap = fs.readFileSync(file, 'base64');
-  return bitmap;
-}
-
 const convertSlug = (text) => {
   return text.normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -257,151 +249,6 @@ const areaSlug = (text, unique = false) => {
     // .toUpperCase();
 
 }
-const moveFile = async (oldPath, newPath) => {
-  // 1. Create the destination directory
-  // Set the `recursive` option to `true` to create all the subdirectories
-  await fs.mkdir(path.dirname(newPath), { recursive: true });
-
-  try {
-    // 2. Rename the file (move it to the new directory)
-    await fs.rename(oldPath, newPath);
-  } catch (error) {
-    // console.log("Error move file", error );
-    if (error.code === 'EXDEV') {
-      // 3. Copy the file as a fallback
-      await fs.copyFile(oldPath, newPath);
-      // Remove the old file
-      await fs.unlink(oldPath);
-    } else {
-      // Throw any other error
-      throw error;
-    }
-  }
-}
-const saveImagesBase64 = async (text, area = null, type = "question") => {
-  const base64Matches = text.match(/<img src="data:image\/(png|jpeg|jpg);base64,([^"]+)">/g);
-  const imageDirectory = 'src/public/images/questions/';
-  const blockReplaced = [];
-  if (base64Matches) {
-
-    // console.log("Base64 Matches", base64Matches.length);
-
-    for (let i = 0; i < base64Matches.length; i++) {
-
-      // console.log("Base64", i);
-      // const base64Data = base64Matches[i].replace(/<img src="data:image\/(png|jpeg|jpg);base64,([^"]+)">/, "").slice(0, -1);
-
-      const base64Data = base64Matches[i].replace(/<img src="data:image\/(png|jpeg|jpg);base64,/, "").slice(0, -1);
-      // console.log("Base64 Data", base64Data);
-
-      let dataImages = "imgb_";
-
-      if (area) {
-        dataImages += convertSlug(area);
-      }
-
-      const hash = crypto.randomBytes(4).toString("hex");
-      dataImages += ("_" + hash);
-      const imageName = dataImages + ".png";
-      const imagePath = imageDirectory + imageName;
-      // console.log(imageName, imagePath);
-      await fs.writeFileSync(imagePath, base64Data, 'base64');
-
-      const urlMain = "https://eduteka.pe";
-
-      let newText = "";
-
-      if (process.env.MODE == "PRODUCTION") {
-        newText = blockQuestion.text.replace(base64Matches[i], `<img src="${urlMain}/images/questions/${imageName}">`);
-      } else {
-        newText = blockQuestion.text.replace(base64Matches[i], `<img src="/images/questions/${imageName}">`);
-      }
-
-      blockQuestion.text = newText;
-
-    }
-
-    blockReplaced.push({
-      _id: block.id,
-      text: blockQuestion.text,
-      itype: 'imagen guardada'
-    });
-
-    await BlockModel.findByIdAndUpdate(blockQuestion._id, { $set: { text: blockQuestion.text } }).exec();
-
-    const blockIndex = exam.areas[area].items.findIndex(item => item.id === blockQuestion._id);
-
-    // console.log("Index Block", blockIndex);
-
-    exam.areas[area].items[blockIndex] = {
-      _id: blockQuestion._id,
-      itype: "block",
-      text: blockQuestion.text
-    };
-
-    if (blockQuestion.title) {
-      exam.areas[area].items[blockIndex].title = blockQuestion.title;
-    }
-
-  } else {
-
-    // console.log("No encontrado imagen", blockQuestion._id);
-
-    blockReplaced.push({
-      _id: blockQuestion._id,
-      text: blockQuestion.text,
-      type: 'sin imagen'
-    });
-
-    const blockIndex = exam.areas[area].items.findIndex(item => item.id === block.id);
-
-    // console.log("Index Block", blockIndex);
-
-    exam.areas[area].items[blockIndex] = {
-      _id: blockQuestion._id,
-      itype: "block",
-      text: blockQuestion.text
-    };
-
-    if (blockQuestion.title) {
-      exam.areas[area].items[blockIndex].title = blockQuestion.title;
-    }
-
-    // await BlockModel.findByIdAndUpdate( BlockQues.id, { $set: { text: block.text } } ).exec();
-
-  }
-}
-
-const saveQuestionImages = async (text, area, type = "question") => {
-  if (!text || typeof text !== 'string') return text;
-
-  const base64Matches = text.match(/<img src="data:image\/(png|jpeg|jpg);base64,([^"]+)"/g);
-  if (!base64Matches) return text;
-
-  const imageDirectory = 'src/public/images/questions/';
-  const prefixes = { question: 'img_q_', resolution: 'img_r_', option: 'img_o_' };
-  const prefix = prefixes[type] ?? 'img_';
-
-  let result = text;
-
-  for (let i = 0; i < base64Matches.length; i++) {
-    const base64Data = base64Matches[i].replace(/<img src="data:image\/(png|jpeg|jpg);base64,/, "").slice(0, -1);
-
-    let dataImages = prefix;
-    if (area) dataImages += convertSlug(area);
-    const hash = crypto.randomBytes(4).toString("hex");
-    dataImages += ("_" + hash);
-    const imageName = dataImages + ".png";
-    const imagePath = imageDirectory + imageName;
-
-    await fs.writeFile(imagePath, base64Data, 'base64');
-
-    const imagePublicUrl = `/images/questions/${imageName}`;
-    result = result.replace(base64Matches[i], `<img src="${imagePublicUrl}"`);
-  }
-
-  return result;
-};
 function normalizeText(html = "") {
   return html?.replace(/<[^>]+>/g, " ")          // quitar tags HTML
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quitar tildes
@@ -415,7 +262,7 @@ export {
   get_template_option, optionsEmpty,
   questionTextCopy, textBlockCopy,
   groupByAndCount, convertSlug,
-  areaSlug, moveFile, groupBy, sumByProperty,
-  get_options_object, saveQuestionImages,
+  areaSlug, groupBy, sumByProperty,
+  get_options_object,
   normalizeText
 };

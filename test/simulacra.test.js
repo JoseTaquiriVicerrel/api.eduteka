@@ -209,7 +209,7 @@ describe('simulacros', () => {
         });
 
         it('no pide DNI; si una app antigua lo envia se ignora y nunca se guarda', async () => {
-            const { dni, ...withoutDni } = person;
+            const { dni: _dni, ...withoutDni } = person;
             const fresh = await createUser(ctx);
             await api('post', '/simulacro-general/inscribirme', fresh, withoutDni).expect(201);
             assert.equal((await enrollmentOf(fresh, 'simulacro-general')).dni, undefined);
@@ -220,7 +220,7 @@ describe('simulacros', () => {
         });
 
         it('sin fullname usa el del perfil; sin ninguno -> 422 en fullname', async () => {
-            const { fullname, dni, ...rest } = person;
+            const { fullname, dni: _dni, ...rest } = person;
             const noName = await createUser(ctx);
             await ctx.User.updateOne({ _id: noName.session.user.id }, { $unset: { fullname: 1 } });
             const res = await api('post', '/simulacro-general/inscribirme', noName, rest).expect(422);
