@@ -194,7 +194,7 @@ Una capacidad faltante responde `403 CAPABILITY_REQUIRED` con un `message` para 
 
 | Método y ruta | Auth | Body / notas |
 |---|---|---|
-| `POST /auth/register` | — | `email, password(8-15), username(≥3), departament, account_type ('Estudiante'\|'Profesor'), university?, teaching_area? (obligatorio si Profesor), edkNotification?` → crea usuario no verificado y envía código de 6 dígitos |
+| `POST /auth/register` | — | `email, password(8-72 caracteres y máx. 72 bytes), username(≥3), departament, account_type ('Estudiante'\|'Profesor'), university?, teaching_area? (obligatorio si Profesor), edkNotification?` → crea usuario no verificado y envía código de 6 dígitos |
 | `POST /auth/resend-code` | — | `email` |
 | `POST /auth/verify-code` | — | `email, code` → tokens + usuario |
 | `POST /auth/login` | — | `email, password` → tokens + usuario |

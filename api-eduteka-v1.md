@@ -73,7 +73,7 @@ Respuesta de tokens:
 
 | | Método y ruta | Auth | Body / notas |
 |---|---|---|---|
-| ✅ | `POST /auth/register` | — | `email, password(8-15), username, departament, account_type, university?, edkNotification?` → envía código de 6 dígitos |
+| ✅ | `POST /auth/register` | — | `email, password(8-72 caracteres y máx. 72 bytes), username, departament, account_type, university?, edkNotification?` → envía código de 6 dígitos |
 | ✅ | `POST /auth/resend-code` | — | `email` |
 | ✅ | `POST /auth/verify-code` | — | `email, code` → devuelve tokens |
 | ✅ | `POST /auth/login` | — | `email, password` → tokens. Sin reCAPTCHA: lo sustituye el rate limit |

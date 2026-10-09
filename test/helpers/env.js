@@ -25,6 +25,11 @@ export const BASE_ENV = {
     // Vacias = sin definir (settings trata '' como ausente). Evitan que un .env local de
     // desarrollo se cuele en las pruebas: dotenv no pisa variables ya definidas.
     PUBLIC_API_URL: '',
+    // Fijadas para que el .env local de desarrollo no cambie el resultado de las pruebas.
+    TRUST_PROXY: 'false',
+    LISTEN_HOST: '',
+    LOGIN_MAX_FAILURES_PER_EMAIL: '30',
+    API_CORS_ORIGINS: '',
     GEMINI_API_KEY: '',
     ADMIN_EMAIL: '',
     PAYMENT_YAPE_NUMBER: '',

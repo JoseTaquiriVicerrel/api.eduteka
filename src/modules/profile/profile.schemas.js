@@ -15,7 +15,7 @@ export const UpdateProfileBody = Type.Object({
 
 export const ChangePasswordBody = Type.Object({
     current_password: Type.String({ minLength: 1, maxLength: 128 }),
-    new_password: Type.String({ minLength: 8, maxLength: 15 }),
+    new_password: Type.String({ minLength: 8, maxLength: 72 }),
     // Opcional: el refresh token de ESTE dispositivo. Si llega, esa sesion se conserva
     // y se cierran las demas; si no, se cierran todas y hay que volver a iniciar sesion.
     refresh_token: Type.Optional(Type.String({ minLength: 20, maxLength: 4096 })),

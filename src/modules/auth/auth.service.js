@@ -6,6 +6,7 @@ import { ApiError } from '#Libs/api_error.js';
 import { del, setNX, ttl as ttlOf } from '#Libs/kv.js';
 import { assertNotLocked, clearFailures, recordFailure } from './login_throttle.js';
 import { sendMail } from '#Libs/mailer.js';
+import { assertPasswordBytes } from '#Libs/password.js';
 import {
     generateCode, generateRefreshToken, hashCode, newId, safeEqual, sha256,
     signAccessToken, signResetToken, verifyResetToken,
@@ -46,6 +47,18 @@ let dummyHashPromise;
 const dummyHash = () => (dummyHashPromise ??= bcrypt.hash(newId(), settings.auth.bcryptRounds));
 
 const hashPassword = (password) => bcrypt.hash(password, settings.auth.bcryptRounds);
+
+// Un hash creado con menos rondas que las actuales (cuentas antiguas, 10) se rehace al iniciar
+// sesion, que es el unico momento en que se conoce la contraseña. El filtro por el hash viejo
+// evita pisar un cambio de contraseña concurrente. Nunca hace fallar el login.
+const upgradeHashIfWeak = async (user, password) => {
+    try {
+        if (bcrypt.getRounds(user.password) >= settings.auth.bcryptRounds) return;
+        await UserModel.updateOne({ _id: user._id, password: user.password }, { $set: { password: await hashPassword(password) } }).exec();
+    } catch {
+        // Se reintenta en el proximo inicio de sesion.
+    }
+};
 
 const cooldownKey = (purpose, email) => `cooldown:${purpose}:${email}`;
 
@@ -151,6 +164,7 @@ const sendCodeMail = (purpose, user, code) => sendMail({
 
 export const register = async (body) => {
     const { email } = body;
+    assertPasswordBytes(body.password, 'password');
 
     const existing = await UserModel.findOne({ email }, { _id: 1, isVerified: 1 }).lean().exec();
     if (existing?.isVerified) throw ApiError.conflict('Este correo ya está registrado.');
@@ -227,22 +241,23 @@ export const verifyCode = async ({ email, code }, ctx) => {
 };
 
 export const login = async ({ email, password }, ctx) => {
-    await assertNotLocked(email);
+    await assertNotLocked(email, ctx.ip);
 
     const user = await UserModel.findOne({ email }, AUTH_USER_FIELDS).select('+password').lean().exec();
 
     const matches = await bcrypt.compare(password, user?.password ?? (await dummyHash()));
     if (!user || !user.password || !matches) {
-        await recordFailure(email);
+        await recordFailure(email, ctx.ip);
         throw ApiError.invalidCredentials();
     }
 
     // Solo tras acertar la contraseña se revela el estado de la cuenta.
-    await clearFailures(email);
+    await clearFailures(email, ctx.ip);
     if (user.state === false) throw ApiError.accountDisabled();
     if (!user.isVerified) throw ApiError.emailNotVerified();
 
     await UserModel.updateOne({ _id: user._id }, { $set: { last_session: new Date() } }).exec();
+    await upgradeHashIfWeak(user, password);
     return issueSession(user, ctx);
 };
 
@@ -371,6 +386,7 @@ export const resetPassword = async ({ reset_token: resetToken, password }) => {
     // los `undefined`), asi que se exigen explicitamente.
     if (typeof payload.uid !== 'string' || typeof payload.jti !== 'string') throw ApiError.invalidToken();
 
+    assertPasswordBytes(password, 'password');
     const passwordHash = await hashPassword(password);
 
     const user = await UserModel.findOneAndUpdate(

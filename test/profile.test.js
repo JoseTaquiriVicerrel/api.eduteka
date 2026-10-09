@@ -139,7 +139,8 @@ describe('perfil', () => {
             await change(null, { current_password: 'x', new_password: 'Nueva1234' }).expect(401);
             const user = await createUser(ctx);
             await change(user, { current_password: 'Passw0rd!', new_password: 'corta' }).expect(422);
-            await change(user, { current_password: 'Passw0rd!', new_password: 'x'.repeat(16) }).expect(422);
+            await change(user, { current_password: 'Passw0rd!', new_password: 'x'.repeat(73) }).expect(422);
+            await change(user, { current_password: 'Passw0rd!', new_password: 'é'.repeat(40) }).expect(422);
             await change(user, { new_password: 'Nueva1234' }).expect(422);
         });
 

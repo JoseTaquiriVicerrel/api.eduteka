@@ -8,6 +8,7 @@ import { settings } from '#Config/settings.js';
 import { ApiError } from '#Libs/api_error.js';
 import { deleteAvatar, processAvatar, saveAvatar } from '#Libs/avatar_storage.js';
 import { isAdmin } from '#Libs/capabilities.js';
+import { assertPasswordBytes } from '#Libs/password.js';
 import { newId, sha256 } from '#Libs/tokens.js';
 import { AUTH_USER_FIELDS } from '#Middlewares/authenticate.js';
 import { serializeUser } from '#Serializers/user.serializer.js';
@@ -93,19 +94,19 @@ const dummy = () => bcrypt.hash(newId(), settings.auth.bcryptRounds);
  * Comprueba la contraseña actual. Comparte el limite de fallos del login. Un fallo
  * da 422 (no 401): un 401 haria que la app intente refrescar el token y reintente.
  */
-const confirmPassword = async (userId, password, field) => {
+const confirmPassword = async (userId, password, field, ip) => {
     const user = await UserModel.findById(userId, { email: 1, rol: 1 }).select('+password').lean().exec();
     if (!user) throw ApiError.unauthenticated();
 
-    await assertNotLocked(user.email);
+    await assertNotLocked(user.email, ip);
     const matches = await bcrypt.compare(password, user.password ?? (await dummy()));
 
     if (!user.password || !matches) {
-        await recordFailure(user.email);
+        await recordFailure(user.email, ip);
         throw ApiError.validation([{ field, message: 'La contraseña no es correcta.' }]);
     }
 
-    await clearFailures(user.email);
+    await clearFailures(user.email, ip);
     return user;
 };
 
@@ -115,8 +116,9 @@ const revokeSessions = async (userId, keepFamilyId = null) => {
     await RefreshTokenModel.updateMany(filter, { $set: { revoked_at: new Date() } }).exec();
 };
 
-export const changePassword = async (userId, { current_password: current, new_password: next, refresh_token: presented }) => {
-    await confirmPassword(userId, current, 'current_password');
+export const changePassword = async (userId, { current_password: current, new_password: next, refresh_token: presented }, ctx = {}) => {
+    assertPasswordBytes(next, 'new_password');
+    await confirmPassword(userId, current, 'current_password', ctx.ip);
 
     if (next === current) {
         throw ApiError.validation([{ field: 'new_password', message: 'La nueva contraseña debe ser distinta de la actual.' }]);
@@ -147,8 +149,8 @@ export const changePassword = async (userId, { current_password: current, new_pa
  * documento: los pedidos, pagos e intentos referencian el user_id y deben
  * conservarse; sin datos personales ya no identifican a nadie.
  */
-export const deleteAccount = async (userId, { password }) => {
-    const user = await confirmPassword(userId, password, 'password');
+export const deleteAccount = async (userId, { password }, ctx = {}) => {
+    const user = await confirmPassword(userId, password, 'password', ctx.ip);
     if (isAdmin(user)) throw ApiError.forbidden('Una cuenta de administrador no se puede eliminar desde la app.');
 
     const previous = await UserModel.findById(userId, { avatar: 1 }).lean().exec();

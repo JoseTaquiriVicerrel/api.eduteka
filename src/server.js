@@ -24,9 +24,10 @@ async function bootstrap() {
     const { default: RefreshTokenModel } = await import('#Models/refresh_token_model.js');
     await RefreshTokenModel.init();
 
-    const server = createApp().listen(settings.port, () => {
-        logger.info({ port: settings.port, env: settings.nodeEnv }, 'API escuchando');
-    });
+    const onListening = () => logger.info({ host: settings.listenHost ?? 'todas', port: settings.port, env: settings.nodeEnv }, 'API escuchando');
+    const server = settings.listenHost
+        ? createApp().listen(settings.port, settings.listenHost, onListening)
+        : createApp().listen(settings.port, onListening);
 
     let closing = false;
     const shutdown = async (signal) => {

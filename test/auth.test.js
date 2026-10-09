@@ -80,8 +80,15 @@ describe('POST /auth/register', () => {
         assert.ok(res.body.error.details.some((detail) => detail.field === 'rol'));
     });
 
-    it('una contraseña de mas de 15 caracteres se rechaza', async () => {
-        await post('/register', newUser({ password: 'x'.repeat(16) })).expect(422);
+    it('acepta contraseñas largas (hasta 72 bytes) y rechaza las que bcrypt recortaria', async () => {
+        await post('/register', newUser({ password: 'x'.repeat(40) })).expect(201);
+        await post('/register', newUser({ password: 'x'.repeat(72) })).expect(201);
+        await post('/register', newUser({ password: 'x'.repeat(73) })).expect(422);
+
+        // 40 tildes = 40 caracteres pero 80 bytes: bcrypt las recortaria en silencio.
+        const res = await post('/register', newUser({ password: 'é'.repeat(40) })).expect(422);
+        assert.equal(res.body.error.details[0].field, 'password');
+        assert.match(res.body.error.details[0].message, /72 bytes/);
     });
 
     it('un correo ya verificado -> 409 CONFLICT', async () => {
@@ -568,7 +575,7 @@ describe('recuperacion de contraseña', () => {
         await post('/verify-code', { email: body.email, code: recoveryCode }).expect(400);
     });
 
-    it('la nueva contraseña respeta 8-15 caracteres', async () => {
+    it('la nueva contraseña respeta 8-72 caracteres', async () => {
         await post('/reset-password', { reset_token: 'x'.repeat(40), password: 'corta' }).expect(422);
     });
 });

@@ -5,8 +5,9 @@ import { Type } from '@sinclair/typebox';
 
 const Email = Type.String({ format: 'email', maxLength: 254 });
 const Code = Type.String({ pattern: '^[0-9]{6}$' });
-// 8-15 caracteres (especificacion §4). bcrypt solo lee los primeros 72 bytes.
-const NewPassword = Type.String({ minLength: 8, maxLength: 15 });
+// 8 a 72 caracteres. bcrypt solo lee los primeros 72 BYTES: el limite en bytes se comprueba en
+// el servicio (#Libs/password.js), porque una tilde o un emoji ocupan mas de un byte.
+const NewPassword = Type.String({ minLength: 8, maxLength: 72 });
 const Token = Type.String({ minLength: 20, maxLength: 4096 });
 
 const strict = { additionalProperties: false };

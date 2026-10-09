@@ -114,7 +114,7 @@ Patrón por módulo: `routes → controller (delgado) → service (lógica) → 
 | `auth-email` | login, códigos | 5/15 min por correo |
 | `write` | respuestas, autoguardado, checkout | 60/min por usuario |
 
-Fallback en memoria si Redis cae. Cada respuesta lleva `RateLimit-Limit/Remaining/Reset`; al excederse, `429` con `Retry-After`. El bucket `auth-email` cuenta registro, reenvío de código y recuperación; el **login cuenta aparte solo sus fallos** por correo (`LOGIN_MAX_FAILURES` en `LOGIN_FAILURE_WINDOW_SECONDS`) y un acierto reinicia el contador. `RATE_LIMIT_GLOBAL` por IP: muchas operadoras móviles comparten IP (CGNAT), ajústalo con datos reales. En login, el rate limit reemplaza al reCAPTCHA (inviable en cliente nativo; en web se puede añadir captcha opcional como header `X-Captcha-Token`).
+Fallback en memoria si Redis cae. Cada respuesta lleva `RateLimit-Limit/Remaining/Reset`; al excederse, `429` con `Retry-After`. El bucket `auth-email` cuenta registro, reenvío de código y recuperación; el **login cuenta aparte solo sus fallos** por correo + IP (`LOGIN_MAX_FAILURES`) y por correo en total (`LOGIN_MAX_FAILURES_PER_EMAIL`, para ataques repartidos entre IP), en `LOGIN_FAILURE_WINDOW_SECONDS` y un acierto reinicia el contador. `RATE_LIMIT_GLOBAL` por IP: muchas operadoras móviles comparten IP (CGNAT), ajústalo con datos reales. En login, el rate limit reemplaza al reCAPTCHA (inviable en cliente nativo; en web se puede añadir captcha opcional como header `X-Captcha-Token`).
 
 ---
 
@@ -142,7 +142,7 @@ Fallback en memoria si Redis cae. Cada respuesta lleva `RateLimit-Limit/Remainin
 
 | Método y ruta | Auth | Body / notas |
 |---|---|---|
-| `POST /auth/register` | — | `email, password(8-15), username(≥3), departament, account_type, university?, edkNotification?` → crea usuario no verificado y envía código de 6 dígitos |
+| `POST /auth/register` | — | `email, password(8-72 caracteres y máx. 72 bytes), username(≥3), departament, account_type, university?, edkNotification?` → crea usuario no verificado y envía código de 6 dígitos |
 | `POST /auth/resend-code` | — | `email` |
 | `POST /auth/verify-code` | — | `email, code` → tokens + usuario |
 | `POST /auth/login` | — | `email, password` → tokens + usuario |

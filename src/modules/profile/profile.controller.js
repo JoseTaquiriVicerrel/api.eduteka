@@ -8,10 +8,10 @@ export const get = asyncHandler(async (req, res) => ok(res, await profile.getPro
 
 export const update = asyncHandler(async (req, res) => ok(res, await profile.updateProfile(req.user._id, req.body)));
 
-export const changePassword = asyncHandler(async (req, res) => ok(res, await profile.changePassword(req.user._id, req.body)));
+export const changePassword = asyncHandler(async (req, res) => ok(res, await profile.changePassword(req.user._id, req.body, { ip: req.ip })));
 
 export const remove = asyncHandler(async (req, res) => {
-    await profile.deleteAccount(req.user._id, req.body);
+    await profile.deleteAccount(req.user._id, req.body, { ip: req.ip });
     return noContent(res);
 });
 

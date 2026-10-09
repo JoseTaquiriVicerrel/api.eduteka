@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 import { settings } from '#Config/settings.js';
 import { logger } from '#Libs/logger.js';
+import { serializeRequest } from '#Libs/log_redact.js';
 import { errorHandler, notFound } from '#Middlewares/error_handler.js';
 import requestId from '#Middlewares/request_id.js';
 import { buildV1Router } from '#Modules/index.js';
@@ -35,6 +36,8 @@ export function createApp() {
     app.use(pinoHttp({
         logger,
         genReqId: (req) => req.id,
+        // La URL de cada peticion se registra, pero sin credenciales (token del enlace de descarga).
+        serializers: { req: serializeRequest },
         autoLogging: { ignore: (req) => req.url.endsWith('/health') },
         customLogLevel: (req, res, err) => (err || res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info'),
     }));

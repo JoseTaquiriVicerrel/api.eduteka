@@ -145,6 +145,9 @@ const settings = Object.freeze({
     isProduction,
     isTest,
     port: int('PORT', 3000, { min: 1, max: 65535 }),
+    // Interfaz en la que escucha. Tras Nginx en el mismo servidor: 127.0.0.1 (nadie llega a Node sin pasar por el proxy).
+    // Sin definir escucha en todas. No se llama HOST: el monolito ya usa esa variable para otra cosa.
+    listenHost: str('LISTEN_HOST', null),
     mongoUri: required('MONGODB_URI'),
     trustProxy: parseTrustProxy(),
     logLevel: str('LOG_LEVEL', isTest ? 'silent' : 'info'),
@@ -168,12 +171,14 @@ const settings = Object.freeze({
     }),
 
     auth: Object.freeze({
-        bcryptRounds: int('BCRYPT_ROUNDS', 10, { min: isTest ? 4 : 10, max: 15 }),
+        bcryptRounds: int('BCRYPT_ROUNDS', 12, { min: isTest ? 4 : 10, max: 15 }),
         verifyCodeTtlMinutes: int('VERIFY_CODE_TTL_MINUTES', 15, { min: 1, max: 120 }),
         recoveryCodeTtlMinutes: int('RECOVERY_CODE_TTL_MINUTES', 10, { min: 1, max: 120 }),
         codeMaxAttempts: int('CODE_MAX_ATTEMPTS', 5, { min: 1, max: 20 }),
         codeCooldownSeconds: int('CODE_COOLDOWN_SECONDS', 60, { min: 0, max: 3600 }),
+        // Fallos por correo + IP antes de bloquear. Y por correo en total (ataque repartido entre IP).
         loginMaxFailures: int('LOGIN_MAX_FAILURES', 5, { min: 1, max: 100 }),
+        loginMaxFailuresPerEmail: int('LOGIN_MAX_FAILURES_PER_EMAIL', 30, { min: 1, max: 1000 }),
         loginFailureWindowSeconds: int('LOGIN_FAILURE_WINDOW_SECONDS', 900, { min: 60, max: 86400 }),
     }),
 
