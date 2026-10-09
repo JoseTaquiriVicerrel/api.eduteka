@@ -5,6 +5,7 @@ import { settings } from '#Config/settings.js';
 import { del, setNX } from '#Libs/kv.js';
 import { DAY_MS, parseQueryDate, startOfDay } from '#Libs/lima_time.js';
 import { readVoucher } from './voucher.reader.js';
+import { checkReceiver, safeText } from './voucher.receiver.js';
 
 // Verificacion automatica de comprobantes. La comparten el checkout de la tienda, el pago
 // de suscripciones y la inscripcion a simulacros de pago (en la web cada flujo tenia sus
@@ -14,7 +15,10 @@ import { readVoucher } from './voucher.reader.js';
 //   1. se lee el numero de operacion y no figura en ningun otro pago, pedido o inscripcion;
 //   2. el monto coincide con el esperado (margen de S/ 1, como la web: la IA puede leer
 //      mal los centimos);
-//   3. la fecha es de hoy o de los ultimos PAYMENT_VOUCHER_MAX_AGE_DAYS dias (hora de Lima).
+//   3. la fecha es de hoy o de los ultimos PAYMENT_VOUCHER_MAX_AGE_DAYS dias (hora de Lima);
+//   4. el destinatario es el titular (o el numero) de Yape/Plin configurado: un comprobante
+//      real pagado a OTRA persona no sirve (PAYMENT_REQUIRE_RECEIVER_MATCH);
+//   5. el importe no supera PAYMENT_AUTO_APPROVE_MAX_AMOUNT (los montos altos los revisa una persona).
 // Nunca rechaza: ante cualquier duda devuelve el motivo y el pago queda en revision manual.
 
 export const AMOUNT_TOLERANCE = 1;
@@ -63,7 +67,13 @@ const formatAmount = (value) => Number(value).toFixed(2);
  * Reglas sobre la lectura de la IA. Pura salvo la consulta de reutilizacion.
  * @returns {Promise<{ approved: boolean, reason: string|null }>}
  */
-export const assessVoucher = async (aiData, expectedAmount, { now = new Date(), reused } = {}) => {
+export const assessVoucher = async (aiData, expectedAmount, {
+    now = new Date(),
+    reused,
+    methods = settings.app.paymentMethods,
+    requireReceiver = settings.paymentAi.requireReceiverMatch,
+    autoApproveMax = settings.paymentAi.autoApproveMaxAmount,
+} = {}) => {
     if (!aiData) return { approved: false, reason: 'Falló verificación IA' };
 
     if (!aiData.numero_operacion) return { approved: false, reason: 'No se pudo leer el número de operación' };
@@ -81,6 +91,19 @@ export const assessVoucher = async (aiData, expectedAmount, { now = new Date(), 
     const maxAge = settings.paymentAi.voucherMaxAgeDays;
     if (today.getTime() - paidOn.getTime() > maxAge * DAY_MS) {
         return { approved: false, reason: `El comprobante es del ${aiData.fecha}: tiene más de ${maxAge} días` };
+    }
+
+    if (requireReceiver) {
+        const receiver = checkReceiver(aiData.receptor, methods);
+        if (receiver.applicable) {
+            if (!aiData.receptor) return { approved: false, reason: 'No se pudo leer el destinatario del pago' };
+            // El nombre sale de una imagen que sube el usuario: se limpia antes de llegar al panel.
+            if (!receiver.matches) return { approved: false, reason: `El destinatario del comprobante (${safeText(aiData.receptor)}) no coincide con el titular de pago` };
+        }
+    }
+
+    if (autoApproveMax > 0 && expectedAmount > autoApproveMax) {
+        return { approved: false, reason: `Monto alto (S/ ${formatAmount(expectedAmount)}): requiere revisión manual (la aprobación automática llega hasta S/ ${formatAmount(autoApproveMax)})` };
     }
 
     return { approved: true, reason: null };

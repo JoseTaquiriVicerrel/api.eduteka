@@ -1,6 +1,7 @@
 import { imageSize } from 'image-size';
 import { settings } from '#Config/settings.js';
 import { logger } from '#Libs/logger.js';
+import { stripMetadata } from './voucher.privacy.js';
 
 // Lectura del comprobante (captura de Yape/Plin) con IA. Extrae los mismos datos que la
 // web (#Services/providers/gemini_provider.js del monolito): monto, fecha, receptor y
@@ -56,6 +57,8 @@ export const normalizeVoucher = (raw) => {
 
 const readWithGemini = async (buffer) => {
     const { geminiApiKey, model, timeoutMs } = settings.paymentAi;
+    // A Google solo viaja la imagen, sin metadatos (GPS, telefono, fecha de captura); el original se guarda aparte.
+    const image = stripMetadata(buffer);
     const response = await fetch(GEMINI_URL(model), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey },
@@ -63,7 +66,7 @@ const readWithGemini = async (buffer) => {
             contents: [{
                 role: 'user',
                 parts: [
-                    { inline_data: { mime_type: mimeOf(buffer), data: buffer.toString('base64') } },
+                    { inline_data: { mime_type: mimeOf(image), data: image.toString('base64') } },
                     { text: PROMPT },
                 ],
             }],

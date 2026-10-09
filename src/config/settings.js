@@ -198,6 +198,12 @@ const settings = Object.freeze({
         timeoutMs: int('PAYMENT_AI_TIMEOUT_MS', 20000, { min: 1000, max: 60000 }),
         // Antiguedad maxima (dias, hora de Lima) de la fecha del comprobante para aprobarlo solo.
         voucherMaxAgeDays: int('PAYMENT_VOUCHER_MAX_AGE_DAYS', 3, { min: 0, max: 60 }),
+        // Exige que el destinatario del comprobante sea el titular (o el numero) de Yape/Plin
+        // configurado. Sin titular ni numero configurados no hay contra que comparar y no se exige.
+        requireReceiverMatch: bool('PAYMENT_REQUIRE_RECEIVER_MATCH', true),
+        // Importe (S/) por encima del cual el pago NUNCA se aprueba solo y queda en revision manual.
+        // 0 = sin limite.
+        autoApproveMaxAmount: int('PAYMENT_AUTO_APPROVE_MAX_AMOUNT', 0, { min: 0 }),
     }),
 
     limits: Object.freeze({
