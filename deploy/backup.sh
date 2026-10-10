@@ -6,10 +6,10 @@
 #   Avatares y resto de STORAGE_DIR, SIN la cache de formulas (storage/math: se regenera sola)
 #
 # Uso (cron diario, por ejemplo a las 03:30):
-#   30 3 * * *  /opt/eduteka/api/deploy/backup.sh >> /var/log/eduteka-backup.log 2>&1
+#   30 3 * * *  /opt/eduteka/bin/backup.sh >> /var/log/eduteka-backup.log 2>&1
 #
 # Variables (todas opcionales salvo el .env):
-#   ENV_FILE     .env de la API                      (por defecto /opt/eduteka/api/.env)
+#   ENV_FILE     .env de la API                      (por defecto /opt/eduteka/shared/.env)
 #   BACKUP_DIR   donde dejar los respaldos           (por defecto /var/backups/eduteka)
 #   KEEP_DAYS    dias que se conservan               (por defecto 14)
 #   REMOTE       destino fuera del servidor (rclone o rsync), p. ej. "rclone:b2:eduteka-backups"
@@ -17,7 +17,7 @@
 #                en este servidor, que NO es un respaldo real si el disco falla.
 set -euo pipefail
 
-ENV_FILE="${ENV_FILE:-/opt/eduteka/api/.env}"
+ENV_FILE="${ENV_FILE:-/opt/eduteka/shared/.env}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/eduteka}"
 KEEP_DAYS="${KEEP_DAYS:-14}"
 REMOTE="${REMOTE:-}"
@@ -27,7 +27,7 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 env_get() { grep -E "^$1=" "$ENV_FILE" | head -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//"; }
 
 MONGODB_URI="$(env_get MONGODB_URI)"
-STORAGE_DIR="$(env_get STORAGE_DIR)";           STORAGE_DIR="${STORAGE_DIR:-/opt/eduteka/api/storage}"
+STORAGE_DIR="$(env_get STORAGE_DIR)";           STORAGE_DIR="${STORAGE_DIR:-/var/lib/eduteka/storage}"
 PAY_CAPTURE_DIR="$(env_get PAY_CAPTURE_DIR)"
 FILES_ROOT_DIR="$(env_get FILES_ROOT_DIR)";     FILES_ROOT_DIR="${FILES_ROOT_DIR:-$(dirname "$STORAGE_DIR")}"
 [ -n "$MONGODB_URI" ] || { echo "MONGODB_URI no esta en $ENV_FILE" >&2; exit 1; }

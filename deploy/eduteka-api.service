@@ -1,6 +1,6 @@
 # Unidad systemd de la API. Copiar a /etc/systemd/system/eduteka-api.service y ajustar las rutas.
 #
-#   sudo cp deploy/eduteka-api.service /etc/systemd/system/
+#   sudo cp deploy/eduteka-api.service /etc/systemd/system/    (ver docs/deploy.md: despliegue continuo)
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now eduteka-api
 #   journalctl -u eduteka-api -f            # logs (JSON, una linea por evento)
@@ -16,9 +16,10 @@ Wants=network-online.target
 Type=simple
 User=eduteka
 Group=eduteka
-WorkingDirectory=/opt/eduteka/api
-# Variables de produccion (ver .env.example). Permisos 600, dueño eduteka.
-EnvironmentFile=/opt/eduteka/api/.env
+# `current` es un enlace simbolico a la version activa (lo cambia deploy/release.sh en cada despliegue).
+WorkingDirectory=/opt/eduteka/current
+# Variables de produccion (ver .env.example). Fuera del codigo, para que sobrevivan a los despliegues.
+EnvironmentFile=/opt/eduteka/shared/.env
 Environment=NODE_ENV=production
 # Con nvm/fnm la ruta de node es otra: `which node` con el usuario eduteka.
 ExecStart=/usr/bin/node src/server.js
@@ -45,10 +46,11 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
-# Rutas con escritura: STORAGE_DIR (avatares, cache de formulas), PAY_CAPTURE_DIR (comprobantes de
-# simulacros) y FILES_ROOT_DIR/storage/payment (comprobantes de pedidos y suscripciones). Ajustar
-# a los valores reales del .env; el resto del disco queda de solo lectura para la API.
-ReadWritePaths=/opt/eduteka/api/storage /var/lib/eduteka
+# Los datos viven FUERA de las versiones, en /var/lib/eduteka, para que un despliegue no los toque:
+#   STORAGE_DIR=/var/lib/eduteka/storage   PAY_CAPTURE_DIR=/var/lib/eduteka/pay_capture
+# (FILES_ROOT_DIR queda en /var/lib/eduteka, el directorio que contiene a STORAGE_DIR.)
+# Es lo unico donde la API puede escribir; el codigo (/opt/eduteka/releases) es de solo lectura.
+ReadWritePaths=/var/lib/eduteka
 
 [Install]
 WantedBy=multi-user.target
