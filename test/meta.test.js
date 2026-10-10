@@ -6,7 +6,7 @@ import { bootTestApp } from './helpers/boot.js';
 describe('meta y convenciones globales', () => {
     let ctx;
     before(async () => {
-        ctx = await bootTestApp({ APP_MIN_VERSION: '1.4.0', APP_LATEST_VERSION: '1.6.0', SUPPORT_WHATSAPP: '51999999999',
+        ctx = await bootTestApp({ APP_MIN_VERSION: '1.4.0', APP_LATEST_VERSION: '1.6.0', APP_UPDATE_URL: 'https://eduteka.test/eduteka.apk', SUPPORT_WHATSAPP: '51999999999',
             PAYMENT_YAPE_NUMBER: '931 988 077',
             PAYMENT_YAPE_HOLDER: 'Eduteka SAC',
             PAYMENT_YAPE_QR_URL: 'http://localhost/qr_yape.jpeg',
@@ -22,6 +22,7 @@ describe('meta y convenciones globales', () => {
             data: {
                 min_version: '1.4.0',
                 latest_version: '1.6.0',
+                update_url: 'https://eduteka.test/eduteka.apk',
                 payments_enabled: true,
                 maintenance: false,
                 web_url: 'https://eduteka.test',

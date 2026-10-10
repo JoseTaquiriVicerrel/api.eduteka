@@ -286,7 +286,7 @@ Leyenda: 🌐 público · 🔑 Bearer · 💎 Bearer + suscripción activa.
 ### 6.1 Meta y catálogo
 | | Ruta | Descripción |
 |---|---|---|
-| 🌐 | `GET /config` | `{min_version, latest_version, payments_enabled, maintenance, web_url, support_whatsapp}` |
+| 🌐 | `GET /config` | `{min_version, latest_version, update_url, payments_enabled, maintenance, web_url, support_whatsapp}` |
 | 🌐 | `GET /health` | Mongo + Redis; `503` si falla alguno |
 | 🌐 | `GET /instituciones` | Instituciones activas |
 | 🌐 | `GET /areas?institution=` | Áreas |

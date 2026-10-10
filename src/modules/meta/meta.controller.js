@@ -9,6 +9,7 @@ import { ok } from '#Libs/envelope.js';
 export const getConfig = (req, res) => ok(res, {
     min_version: settings.app.minVersion,
     latest_version: settings.app.latestVersion,
+    update_url: settings.app.updateUrl,
     payments_enabled: settings.app.paymentsEnabled,
     maintenance: settings.app.maintenance,
     web_url: settings.app.webUrl,

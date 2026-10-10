@@ -236,6 +236,8 @@ const settings = Object.freeze({
     app: Object.freeze({
         minVersion: semver('APP_MIN_VERSION', '1.0.0'),
         latestVersion: semver('APP_LATEST_VERSION', '1.0.0'),
+        // Enlace directo (https) al APK de la ultima version, para quien instalo fuera de Google Play.
+        updateUrl: normalizeWebUrl(str('APP_UPDATE_URL', null)),
         paymentsEnabled: bool('APP_PAYMENTS_ENABLED', true),
         maintenance: bool('APP_MAINTENANCE', false),
         supportWhatsapp: str('SUPPORT_WHATSAPP', null),
