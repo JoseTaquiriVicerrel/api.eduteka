@@ -1,0 +1,14 @@
+# Los scripts y unidades del servidor siempre con saltos de linea Unix, tambien en Windows.
+*.sh      text eol=lf
+*.service text eol=lf
+deploy/sudoers-deploy text eol=lf
+
+# Lo que NO viaja al servidor en `git archive` (lo usa el despliegue): ni pruebas, ni documentacion,
+# ni la configuracion de CI, ni los scripts de servidor (se instalan aparte, en /opt/eduteka/bin).
+/test            export-ignore
+/docs            export-ignore
+/.github         export-ignore
+/deploy          export-ignore
+/*.md            export-ignore
+/eslint.config.js export-ignore
+/.gitattributes  export-ignore

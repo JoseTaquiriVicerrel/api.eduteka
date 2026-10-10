@@ -1,0 +1,69 @@
+name: Deploy
+
+# ESTADO: DESACTIVADO. Solo se ejecuta a mano (Actions > Deploy > Run workflow) y necesita antes
+# la configuracion del servidor y los secretos de GitHub (docs/deploy.md, seccion 2).
+#
+# Para desplegar automaticamente tras cada CI en verde sobre main:
+#   1. Activa tambien el CI (ci.yml: descomenta push/pull_request).
+#   2. Descomenta el bloque `workflow_run` de abajo.
+on:
+  workflow_dispatch:
+  # workflow_run:
+  #   workflows: [CI]
+  #   types: [completed]
+  #   branches: [main]
+
+# Un despliegue a la vez; uno nuevo espera al que esta en curso en vez de pisarlo.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # A mano, o solo si el CI que lo disparo termino bien.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    # Entorno "production" de GitHub: aqui viven los secretos y se puede exigir aprobacion manual
+    # (Settings > Environments > production > Required reviewers).
+    environment:
+      name: production
+      url: https://api.eduteka.pe/api/v1/health
+    env:
+      # Commit a desplegar: el del CI que termino o, a mano, el de la rama elegida. El servidor lo
+      # descarga de GitHub y comprueba que pertenece a main.
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Configurar SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # La huella del servidor viene fijada en un secreto: no se confia en la primera conexion.
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      # La llave solo puede ejecutar receive.sh en el servidor (comando forzado) y lo unico que
+      # envia es el SHA: el servidor descarga el codigo de GitHub y comprueba que esta en main.
+      - name: Desplegar
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${DEPLOY_PORT:-22}" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=15 \
+            "$DEPLOY_USER@$DEPLOY_HOST" "$DEPLOY_SHA"
+
+      # Comprobacion desde fuera, por Cloudflare y Nginx: lo que ve la app.
+      - name: Verificar /health publico
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 10 https://api.eduteka.pe/api/v1/health | grep -q '"status":"ok"'; then
+              echo "API en linea"; exit 0
+            fi
+            sleep 5
+          done
+          echo "/health no responde ok tras el despliegue" >&2
+          exit 1
