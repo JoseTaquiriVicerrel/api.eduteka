@@ -395,7 +395,7 @@ describe('perfil', () => {
             assert.ok(!JSON.stringify(res.body).includes('"answers"'));
         });
 
-        it('etiqueta cada intento y calcula el acierto sobre lo respondido', async () => {
+        it('etiqueta cada intento y calcula el acierto sobre lo respondido y sobre el total', async () => {
             const res = await get('/perfil/intentos', user).expect(200);
             const byId = Object.fromEntries(res.body.data.map((item) => [item.id, item]));
 
@@ -403,6 +403,9 @@ describe('perfil', () => {
             assert.equal(byId.pa1.source, 'area');
             assert.equal(byId.pa1.topic, 'Álgebra');
             assert.equal(byId.pa1.accuracy, 0.778);
+            assert.equal(byId.pa1.accuracy_total, 0.7);
+            assert.equal(byId['us1|2'].accuracy_total, 0.667);
+            assert.equal(byId['us1|1'].accuracy_total, 0.444);
             assert.equal(byId.pa1.time, 90);
             assert.equal(byId.pa2.label, 'Mi práctica');
             assert.equal(byId.pa2.practice_slug, 'mi-practica');

@@ -64,6 +64,7 @@ const serializePractice = (attempt, labels) => ({
     incorrect: attempt.questions_incorrect ?? 0,
     not_answered: attempt.questions_not_answered ?? 0,
     accuracy: accuracyOf(attempt.questions_correct ?? 0, attempt.questions_incorrect ?? 0),
+    accuracy_total: accuracyOverTotal(attempt.questions_correct ?? 0, attempt.total_questions ?? 0),
     time: attempt.time ?? 0,
 });
 
@@ -82,6 +83,7 @@ const serializeSimulacrum = (attempt, simulacra) => {
         incorrect: attempt.incorrect,
         not_answered: attempt.not_answered,
         accuracy: accuracyOf(attempt.correct, attempt.incorrect),
+        accuracy_total: accuracyOverTotal(attempt.correct, attempt.total),
         score: attempt.score,
         score_conversion: attempt.score_conversion,
         time: null,
