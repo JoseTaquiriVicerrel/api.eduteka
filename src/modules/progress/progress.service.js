@@ -6,7 +6,7 @@ import UserAnswerModel from '#Models/user_answer_model.js';
 import { DAY_MS, dayKeyOf } from '#Libs/lima_time.js';
 import { STUDENT_DAYS, buildStudentProgress } from '#Libs/progress_metrics.js';
 import { listAreas } from '#Modules/catalog/catalog.service.js';
-import { accuracyOf, fetchGradedSimulacrumDocs, listAttempts } from './attempts.service.js';
+import { accuracyOf, accuracyOverTotal, fetchGradedSimulacrumDocs, listAttempts } from './attempts.service.js';
 import { cacheProgress, getCachedProgress } from './progress.cache.js';
 
 // Dashboard de progreso (GET /progreso). El calculo vive en #Libs/progress_metrics.js
@@ -178,7 +178,14 @@ const shape = async (userId, now) => {
                     attempt_number: item.attempt_number,
                     score: item.score,
                     score_conversion: item.score_conversion,
+                    total: item.total,
+                    correct: item.correct,
+                    incorrect: item.incorrect,
+                    not_answered: item.not_answered,
+                    // `accuracy` (sobre lo respondido) se conserva para las apps ya instaladas;
+                    // `accuracy_total` es el que se muestra: las no respondidas tambien cuentan.
                     accuracy: accuracyOf(item.correct, item.incorrect),
+                    accuracy_total: accuracyOverTotal(item.correct, item.total),
                     date: item.at.toISOString(),
                 };
             }),

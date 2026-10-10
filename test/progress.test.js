@@ -152,7 +152,8 @@ describe('GET /progreso', () => {
             assert.equal(data.summary.study_time, 3600);
             assert.deepEqual(data.simulacra, [{
                 slug: 'simulacro-abril', title: 'Simulacro Abril', attempt_number: 1, score: 100, score_conversion: 12.5,
-                accuracy: 0.75, date: new Date(start.getTime() + 3600_000).toISOString(),
+                total: 45, correct: 30, incorrect: 10, not_answered: 5,
+                accuracy: 0.75, accuracy_total: 0.667, date: new Date(start.getTime() + 3600_000).toISOString(),
             }]);
             assert.equal(data.recent_attempts.length, 1);
             assert.equal(data.recent_attempts[0].type, 'simulacro');

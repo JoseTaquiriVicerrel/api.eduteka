@@ -41,6 +41,11 @@ export const accuracyOf = (correct, incorrect) => {
     return answered > 0 ? Math.round((correct / answered) * 1000) / 1000 : null;
 };
 
+// Acierto sobre el total del intento (las no respondidas cuentan, como en la
+// calificacion de muchos examenes); null si el intento no tiene preguntas.
+export const accuracyOverTotal = (correct, total) =>
+    total > 0 ? Math.round((correct / total) * 1000) / 1000 : null;
+
 const toIso = (date) => (date ? new Date(date).toISOString() : null);
 
 const serializePractice = (attempt, labels) => ({
