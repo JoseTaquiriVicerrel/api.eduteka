@@ -16,15 +16,25 @@ describe('examenes: vista previa sin suscripcion', () => {
 
     const get = (path, user) => request(ctx.app).get(`/api/v1/examenes${path}`).set(user ? bearer(user) : {});
 
-    it('anonimo: solo la primera pregunta; la lectura que quedaria suelta se omite', async () => {
-        const { data } = (await get('/unmsm-2025-i').expect(200)).body;
+    it('sesion sin suscripcion: solo la primera pregunta; la lectura que quedaria suelta se omite', async () => {
+        const student = await createUser(ctx);
+        const { data } = (await get('/unmsm-2025-i', student).expect(200)).body;
 
         assert.deepEqual(data.items.map((item) => item.id), ['g1']);
-        assert.deepEqual(data.access, { preview: true, total_questions: 2, served_questions: 1 });
+        assert.deepEqual(data.access, {
+            preview: true, total_questions: 2, served_questions: 1,
+            login_required: false, can_download: false, download_requires: 'subscription',
+        });
+    });
+
+    it('anonimo: ninguna pregunta (la API exige sesion para verlas)', async () => {
+        const { data } = (await get('/unmsm-2025-i').expect(200)).body;
+        assert.deepEqual(data.items, []);
+        assert.equal(data.access.login_required, true);
     });
 
     it('aplica a cada cuadernillo', async () => {
-        const { data } = (await get('/unmsm-2025-i?area=B').expect(200)).body;
+        const { data } = (await get('/unmsm-2025-i?area=B', await createUser(ctx)).expect(200)).body;
         assert.deepEqual(data.items.map((item) => item.id), ['g2']);
         assert.equal(data.access.preview, true);
     });
@@ -43,7 +53,10 @@ describe('examenes: vista previa sin suscripcion', () => {
         });
         const { data } = (await get('/unmsm-2025-i', premium).expect(200)).body;
         assert.deepEqual(data.items.map((item) => item.id), ['g1', 'gr1', 'g2']);
-        assert.deepEqual(data.access, { preview: false, total_questions: 2, served_questions: 2 });
+        assert.deepEqual(data.access, {
+            preview: false, total_questions: 2, served_questions: 2,
+            login_required: false, can_download: true, download_requires: null,
+        });
     });
 
     it('una suscripcion vencida (cron pendiente) no da acceso completo', async () => {

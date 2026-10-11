@@ -1,3 +1,4 @@
+import { settings } from '#Config/settings.js';
 import { absoluteUrl, absolutizeHtml } from '#Libs/urls.js';
 import { optionEntries } from '#Serializers/question.serializer.js';
 
@@ -21,7 +22,7 @@ const pdfAreas = (files) =>
 /** Campos que se piden a Mongo para el listado. */
 export const EXAM_SUMMARY_PROJECTION = Object.freeze({
     title: 1, description: 1, slug: 1, modality: 1, date: 1, institution: 1, image_post: 1,
-    subjects: 1, favorites: 1, files: 1, created_at: 1,
+    subjects: 1, favorites: 1, files: 1, created_at: 1, is_free: 1,
 });
 
 export const serializeExamSummary = (exam) => ({
@@ -43,6 +44,8 @@ export const serializeExamSummary = (exam) => ({
     subjects: Array.isArray(exam.subjects) ? exam.subjects : [],
     favorites: exam.favorites ?? 0,
     has_pdf: pdfAreas(exam.files).length > 0,
+    // Descarga gratuita con sesion (sin suscripcion).
+    is_free: exam.is_free === true,
     created_at: iso(exam.created_at),
 });
 
@@ -58,7 +61,11 @@ export const serializeExamAreas = (exam) =>
         verified: Boolean(area?.verified),
     }));
 
-export const serializeExamFiles = (exam) => pdfAreas(exam.files);
+// `download_url` apunta al endpoint que comprueba el permiso (con Bearer): nunca a la ruta del disco.
+export const serializeExamFiles = (exam) => pdfAreas(exam.files).map((file) => ({
+    ...file,
+    download_url: `${settings.app.apiUrl ?? ''}/api/v1/examenes/${encodeURIComponent(exam.slug)}/pdf?area=${encodeURIComponent(file.area)}`,
+}));
 
 /**
  * Elementos de un cuadernillo: lecturas (texto compartido) y preguntas numeradas.

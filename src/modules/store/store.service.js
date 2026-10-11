@@ -1,3 +1,4 @@
+import ExamModel from '#Models/exam_model.js';
 import OrderModel from '#Models/order_model.js';
 import ProductModel from '#Models/product_model.js';
 import { settings } from '#Config/settings.js';
@@ -11,7 +12,9 @@ import { buildSelectableAreas } from '#Libs/product_areas.js';
 import { safeSearchRegex } from '#Libs/text_utils.js';
 import { absoluteUrl, absolutizeHtml } from '#Libs/urls.js';
 import { logUserActivity } from '#Libs/user_activity.js';
+import { examDownloadRequirement } from '#Modules/downloads/download.access.js';
 import { verifyVoucher } from '#Modules/payments/voucher.verify.js';
+import { serializeExamFiles } from '#Serializers/exam.serializer.js';
 import { CART_PRODUCT_PROJECTION, buildCart, serializeCartLine, toOrderItem, totalsOf } from './store.cart.js';
 
 // Tienda: catalogo de productos, carrito (que vive en el cliente), checkout con
@@ -42,14 +45,17 @@ const serializeProductSummary = (product) => ({
     type_file: product.type_file ?? null,
     // Precio POR AREA: un examen con dos areas cuesta el doble (y tiene descuento).
     price: Number(product.price) || 0,
+    // Gratis: no se compra ni entra al carrito; se descarga con sesion desde la ficha.
+    is_free: product.is_free === true,
     currency: CURRENCY,
     poster: product.poster ? absoluteUrl(product.poster) : null,
     unique: Boolean(product.unique),
     areas: publicAreas(product),
 });
 
-export const listProducts = async ({ type, q, page, limit }) => {
+export const listProducts = async ({ type, q, free, page, limit }) => {
     const filter = { state: true };
+    if (free === true) filter.is_free = true;
     if (type) filter.type = type;
     if (q?.trim()) filter.name = safeSearchRegex(q.trim());
 
@@ -66,9 +72,30 @@ export const listProducts = async ({ type, q, page, limit }) => {
     return { items: docs.map(serializeProductSummary), total };
 };
 
-export const getProduct = async (slug) => {
+/**
+ * Descarga de un producto gratuito. El archivo vive en el EXAMEN de origen (`product.source`),
+ * no en el producto, y la descarga pasa por el endpoint de examenes, que decide el permiso: aqui
+ * solo se informa. `null` si el producto no es gratis o su examen ya no esta publicado.
+ */
+const freeDownload = async (product, user) => {
+    if (product.is_free !== true || !product.source) return null;
+
+    const exam = await ExamModel.findOne({ _id: product.source, verified: true }, { slug: 1, is_free: 1, files: 1, institution: 1 }).lean().exec();
+    if (!exam) return null;
+
+    const requires = examDownloadRequirement(user ?? null, exam);
+    return {
+        exam_slug: exam.slug,
+        can_download: requires === null,
+        // null | 'login' | 'subscription' | 'institution'
+        download_requires: requires,
+        files: serializeExamFiles(exam),
+    };
+};
+
+export const getProduct = async (slug, user = null) => {
     // Un examen convertido en producto hereda el slug del examen; si se repite, el mas reciente.
-    const product = await ProductModel.findOne({ slug, state: true }, { ...CART_PRODUCT_PROJECTION, description: 1, images: 1, files: 1 })
+    const product = await ProductModel.findOne({ slug, state: true }, { ...CART_PRODUCT_PROJECTION, description: 1, images: 1, files: 1, source: 1 })
         .sort({ created_at: -1 })
         .lean()
         .exec();
@@ -80,6 +107,7 @@ export const getProduct = async (slug) => {
         images: (product.images ?? []).filter(Boolean).map(absoluteUrl),
         // Que incluye la compra. La ruta en disco (`files[].path`) nunca sale.
         files: (product.files ?? []).map((file) => ({ name: file.name ?? null, area: file.area ?? null })),
+        download: await freeDownload(product, user),
     };
 };
 
@@ -93,10 +121,12 @@ const loadCartProducts = async (items) => {
 
 /** Recalcula un carrito del cliente: lineas, descuentos, total y productos que ya no se venden. */
 export const resolveCart = async (items) => {
-    const { lines, unavailable } = buildCart(items, await loadCartProducts(items));
+    const { lines, unavailable, skipped } = buildCart(items, await loadCartProducts(items));
     return {
         items: lines.map(serializeCartLine),
         unavailable,
+        // Gratuitos: no se compran. La app los quita del carrito y los ofrece como descarga.
+        skipped: skipped.map((productId) => ({ product_id: productId, reason: 'FREE' })),
         ...totalsOf(lines),
         currency: CURRENCY,
     };
@@ -173,13 +203,17 @@ export const checkout = async ({ req, user, body, capture }) => {
     assertPaymentsEnabled();
     if (!capture) throw ApiError.validation([{ field: 'payment_proof', message: 'Adjunta el comprobante de pago.' }]);
 
-    const { lines, unavailable, problems } = buildCart(body.items, await loadCartProducts(body.items), { strict: true });
+    // Los gratuitos se descartan sin error (precio 0: no cambian el total), como en el checkout de la web.
+    const { lines, unavailable, skipped, problems } = buildCart(body.items, await loadCartProducts(body.items), { strict: true });
     if (unavailable.length > 0) {
         throw new ApiError(409, 'CONFLICT', 'Algunos productos de tu carrito ya no están disponibles.', {
             details: unavailable.map((id) => ({ field: 'items', message: `Producto no disponible: ${id}` })),
         });
     }
     if (problems.length > 0) throw ApiError.validation(problems);
+    if (lines.length === 0 && skipped.length > 0) {
+        throw ApiError.validation([{ field: 'items', message: 'Los exámenes gratuitos no se compran: descárgalos desde su ficha.' }]);
+    }
 
     const { total, discount } = totalsOf(lines);
     if (total <= 0) throw ApiError.validation([{ field: 'items', message: 'El total del pedido no es válido.' }]);

@@ -72,25 +72,46 @@ export const resolveOrderFile = async ({ user, orderId, productId, fileName }) =
     };
 };
 
+/** Examen marcado como gratuito: se descarga con solo tener sesion. */
+export const isFreeExam = (exam) => exam?.is_free === true;
+
 /**
- * Permiso para descargar los examenes de la suscripcion: administrador, o suscripcion
- * VIGENTE (estado y fecha). Con un plan restringido a una institucion, solo los examenes
- * de esa institucion.
+ * Que le falta a `user` (null si es anonimo) para descargar el PDF de `exam`:
+ *   null           -> puede descargar
+ *   'login'        -> necesita iniciar sesion (tambien los examenes gratis)
+ *   'subscription' -> necesita una suscripcion vigente
+ *   'institution'  -> su plan esta restringido a otra institucion
+ * Es la unica fuente de la regla: la usan la descarga y el campo `access` de la ficha.
  */
-export const assertExamDownloadAllowed = (user, exam) => {
-    if (isAdmin(user)) return;
-    if (!hasActiveSuscription(user)) throw ApiError.subscriptionRequired('Necesitas una suscripción activa para descargar exámenes.');
+export const examDownloadRequirement = (user, exam) => {
+    if (!user) return 'login';
+    if (isFreeExam(exam) || isAdmin(user)) return null;
+    if (!hasActiveSuscription(user)) return 'subscription';
 
     const { suscription } = user;
     const examInstitution = exam.institution?.id;
     if (examInstitution && suscription.institution_id && String(suscription.institution_id) !== String(examInstitution)) {
-        throw ApiError.institutionRestricted('No tienes acceso a contenidos de esta institución.');
+        return 'institution';
     }
+    return null;
 };
 
-/** Archivo PDF de un examen (con suscripcion). `area` es la clave dentro de `exam.files`. */
+/**
+ * Permiso para descargar un examen. Uno gratuito (`is_free`) solo exige sesion, y la ruta
+ * ya la exige: no depende del plan ni de su restriccion por institucion. El resto:
+ * administrador, o suscripcion VIGENTE (estado y fecha); con un plan restringido a una
+ * institucion, solo los examenes de esa institucion.
+ */
+export const assertExamDownloadAllowed = (user, exam) => {
+    const requires = examDownloadRequirement(user, exam);
+    if (requires === 'login') throw ApiError.unauthenticated();
+    if (requires === 'subscription') throw ApiError.subscriptionRequired('Necesitas una suscripción activa para descargar exámenes.');
+    if (requires === 'institution') throw ApiError.institutionRestricted('No tienes acceso a contenidos de esta institución.');
+};
+
+/** Archivo PDF de un examen (gratuito, o con suscripcion). `area` es la clave dentro de `exam.files`. */
 export const resolveExamFile = async ({ user, slug, area }) => {
-    const exam = await ExamModel.findOne({ slug, verified: true }, { title: 1, slug: 1, institution: 1, files: 1 }).lean().exec();
+    const exam = await ExamModel.findOne({ slug, verified: true }, { title: 1, slug: 1, institution: 1, files: 1, is_free: 1 }).lean().exec();
     if (!exam) throw ApiError.notFound('No encontramos ese examen.');
 
     assertExamDownloadAllowed(user, exam);
@@ -103,12 +124,13 @@ export const resolveExamFile = async ({ user, slug, area }) => {
     const stored = await resolveStoredFile(file.path);
     if (!stored) throw ApiError.notFound('El archivo ya no está disponible.');
 
+    const free = isFreeExam(exam);
     const { suscription } = user;
     return {
         stored,
         downloadName: path.basename(file.path),
         audit: {
-            source: 'subscription',
+            source: free ? 'free' : 'subscription',
             resource_type: 'exam',
             resource_id: exam._id,
             resource_slug: exam.slug,
@@ -116,8 +138,9 @@ export const resolveExamFile = async ({ user, slug, area }) => {
             area: areaKey,
             file_name: path.basename(file.path),
             file_path: file.path,
-            // Queda en null cuando descarga un administrador sin suscripcion.
-            subscription: suscription
+            // Queda en null cuando descarga un administrador sin suscripcion y en un examen gratis
+            // (el acceso no vino del plan).
+            subscription: !free && suscription
                 ? { name: suscription.name, end_date: suscription.end_date, institution_id: suscription.institution_id }
                 : null,
         },

@@ -15,7 +15,7 @@ import { absoluteUrl } from '#Libs/urls.js';
 //    de lo que el usuario eligio y vio.
 
 export const CART_PRODUCT_PROJECTION = Object.freeze({
-    name: 1, slug: 1, price: 1, type: 1, type_file: 1, unique: 1, areas: 1, poster: 1,
+    name: 1, slug: 1, price: 1, type: 1, type_file: 1, unique: 1, areas: 1, poster: 1, is_free: 1,
 });
 
 const publicArea = ({ abrev, label, title, description }) => ({ abrev, label, title, description });
@@ -23,12 +23,15 @@ const publicArea = ({ abrev, label, title, description }) => ({ abrev, label, ti
 /**
  * @param {Array<{product_id: string, areas?: string[]}>} requested
  * @param {Map<string, object>} productsById productos a la venta (`state: true`)
- * @returns {{ lines: object[], unavailable: string[], problems: object[] }}
- *   `problems` (detalles de validacion) solo se llena en modo estricto.
+ * @returns {{ lines: object[], unavailable: string[], skipped: string[], problems: object[] }}
+ *   `problems` (detalles de validacion) solo se llena en modo estricto. `skipped` son los
+ *   productos gratuitos (`is_free`): no se compran, se descargan desde su ficha, asi que
+ *   nunca entran a las lineas ni al total (en ningun modo; igual que el checkout de la web).
  */
 export const buildCart = (requested, productsById, { strict = false } = {}) => {
     const lines = [];
     const unavailable = [];
+    const skipped = [];
     const problems = [];
     const seen = new Set();
 
@@ -45,6 +48,11 @@ export const buildCart = (requested, productsById, { strict = false } = {}) => {
         const product = productsById.get(productId);
         if (!product) {
             unavailable.push(productId);
+            return;
+        }
+
+        if (product.is_free === true) {
+            skipped.push(productId);
             return;
         }
 
@@ -82,7 +90,7 @@ export const buildCart = (requested, productsById, { strict = false } = {}) => {
         });
     });
 
-    return { lines, unavailable, problems };
+    return { lines, unavailable, skipped, problems };
 };
 
 export const totalsOf = (lines) => cartTotals(lines.map(({ price, product, areas }) => ({ price, type: product.type, areas })));

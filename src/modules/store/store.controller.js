@@ -8,7 +8,7 @@ export const listProducts = asyncHandler(async (req, res) => {
     return ok(res, items, pageMeta({ page: req.query.page, limit: req.query.limit, total }));
 });
 
-export const getProduct = asyncHandler(async (req, res) => ok(res, await store.getProduct(req.params.slug)));
+export const getProduct = asyncHandler(async (req, res) => ok(res, await store.getProduct(req.params.slug, req.user)));
 
 export const resolveCart = asyncHandler(async (req, res) => ok(res, await store.resolveCart(req.body.items)));
 

@@ -13,7 +13,8 @@ const members = [authenticate, authorize()];
 // /productos: catalogo publico.
 export const productRouter = Router();
 productRouter.get('/', validate(ListProductsQuery, 'query'), controller.listProducts);
-productRouter.get('/:slug', validate(SlugParams, 'params'), controller.getProduct);
+// El detalle es publico; con sesion indica si un producto gratuito ya se puede descargar.
+productRouter.get('/:slug', authenticate, validate(SlugParams, 'params'), controller.getProduct);
 
 // /tienda: el carrito vive en el cliente; el servidor solo lo recalcula y registra el pedido.
 export const storeRouter = Router();

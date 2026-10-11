@@ -26,6 +26,8 @@ const ExamSchema = new Schema({
     notification: { type: Boolean, default: false },
     image_post: { type: String },
     verified: { type: Boolean, default: false },
+    // Descarga gratuita con sesion (sin pedido ni suscripcion). Lo fija el admin del monolito.
+    is_free: { type: Boolean, default: false },
     assigned_editor_id: { type: String, ref: 'User' },
 }, {
   timestamps: {

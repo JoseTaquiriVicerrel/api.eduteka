@@ -44,7 +44,7 @@ describe('examenes', () => {
                 id: 'e1', title: 'Examen UNMSM 2025-I', description: 'Primera fase', slug: 'unmsm-2025-i', modality: 'Ordinario',
                 date: '2025-03-10T00:00:00.000Z', image: 'https://eduteka.test/images/posts/e1.png',
                 institution: { id: 'inst-unmsm', name: 'UNMSM', abrev: 'SM', image: 'https://eduteka.test/images/inst/sm.png' },
-                subjects: ['Matemática', 'Lenguaje'], favorites: 0, has_pdf: true, created_at: e1.created_at,
+                subjects: ['Matemática', 'Lenguaje'], favorites: 0, has_pdf: true, is_free: false, created_at: e1.created_at,
             });
             assert.equal(res.body.data.find((exam) => exam.id === 'e2').has_pdf, false);
             const json = JSON.stringify(res.body);
@@ -97,8 +97,8 @@ describe('examenes', () => {
     });
 
     describe('GET /examenes/:slug', () => {
-        it('es publico: cuadernillos, archivos y el primer cuadernillo en su orden, sin respuestas', async () => {
-            const res = await get('/unmsm-2025-i').expect(200);
+        it('con sesion: cuadernillos, archivos y el primer cuadernillo en su orden, sin respuestas', async () => {
+            const res = await get('/unmsm-2025-i', student).expect(200);
             const { data } = res.body;
 
             assert.equal(data.title, 'Examen UNMSM 2025-I');
@@ -109,8 +109,11 @@ describe('examenes', () => {
                 { code: 'B', abrev: 'B', title: 'Área B', description: 'B: Biomédicas', solution: false, verified: false },
             ]);
             // Solo el cuadernillo con ruta; la ruta no sale.
-            assert.deepEqual(data.files, [{ area: 'A', title: 'Cuadernillo A' }]);
-            assert.deepEqual(data.access, { preview: false, total_questions: 2, served_questions: 2 });
+            assert.deepEqual(data.files, [{ area: 'A', title: 'Cuadernillo A', download_url: '/api/v1/examenes/unmsm-2025-i/pdf?area=A' }]);
+            assert.deepEqual(data.access, {
+                preview: false, total_questions: 2, served_questions: 2,
+                login_required: false, can_download: false, download_requires: 'subscription',
+            });
 
             // g1, la lectura gr1 y g2; el conflicto (gx) y el id que ya no existe (gmissing) se omiten.
             assert.deepEqual(data.items.map((item) => [item.kind, item.id, item.n]), [
@@ -127,22 +130,42 @@ describe('examenes', () => {
         });
 
         it('?area= elige el cuadernillo; uno inexistente -> 404', async () => {
-            const b = await get('/unmsm-2025-i?area=B').expect(200);
+            const b = await get('/unmsm-2025-i?area=B', student).expect(200);
             assert.equal(b.body.data.area, 'B');
             assert.deepEqual(b.body.data.items.map((item) => item.id), ['g2', 'g3']);
             assert.deepEqual(b.body.data.items.map((item) => item.n), [1, 2]);
 
-            await get('/unmsm-2025-i?area=Z').expect(404);
+            await get('/unmsm-2025-i?area=Z', student).expect(404);
             await get('/unmsm-2025-i?area=').expect(422);
             await get('/unmsm-2025-i?foo=1').expect(422);
         });
 
         it('un examen antiguo sin banco general sirve las preguntas del propio cuadernillo', async () => {
-            const res = await get('/unmsm-2024-ii').expect(200);
+            const res = await get('/unmsm-2024-ii', student).expect(200);
             assert.equal(res.body.data.unique, true);
             assert.equal(res.body.data.favorites, 3);
             assert.deepEqual(res.body.data.items.map((item) => item.id), ['l1', 'l2']);
             assertNoAnswers(res.body);
+        });
+
+        it('sin sesion la ficha es publica pero NO trae preguntas (en la web si se ven): pide iniciar sesion', async () => {
+            const res = await get('/unmsm-2025-i').expect(200);
+            const { data } = res.body;
+
+            assert.equal(data.title, 'Examen UNMSM 2025-I');
+            assert.equal(data.areas.length, 2);
+            assert.deepEqual(data.items, []);
+            assert.deepEqual(data.access, {
+                preview: true, total_questions: 2, served_questions: 0,
+                login_required: true, can_download: false, download_requires: 'login',
+            });
+            assertNoAnswers(res.body);
+        });
+
+        it('un token invalido se trata como anonimo: ficha sin preguntas', async () => {
+            const res = await request(ctx.app).get(`${API}/examenes/unmsm-2025-i`).set('Authorization', 'Bearer basura').expect(200);
+            assert.deepEqual(res.body.data.items, []);
+            assert.equal(res.body.data.access.login_required, true);
         });
 
         it('no sirve borradores, examenes sin contenido ni slugs inexistentes (404)', async () => {
@@ -168,10 +191,7 @@ describe('examenes', () => {
             assert.equal((await get('/unmsm-2025-i', admin).expect(200)).body.data.items[0].correct, 'B');
         });
 
-        it('un token invalido no rompe la lectura publica (se trata como anonimo)', async () => {
-            const res = await request(ctx.app).get(`${API}/examenes/unmsm-2025-i`).set('Authorization', 'Bearer basura').expect(200);
-            assertNoAnswers(res.body);
-        });
+
     });
 
     describe('POST /examenes/:id/favorito y GET /examenes/favoritos', () => {

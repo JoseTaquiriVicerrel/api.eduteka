@@ -11,6 +11,8 @@ export const ListExamsQuery = Type.Object({
     // Area del catalogo, por id o slug.
     area: Type.Optional(Id),
     q: Type.Optional(Type.String({ maxLength: 200 })),
+    // `free=true`: solo los de descarga gratuita. `free=false` no filtra (es el valor por omision).
+    free: Type.Optional(Type.Boolean()),
     ...paginationFields(),
 }, strict);
 

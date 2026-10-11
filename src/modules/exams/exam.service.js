@@ -5,6 +5,7 @@ import QuestionModel from '#Models/question_model.js';
 import { settings } from '#Config/settings.js';
 import { ApiError } from '#Libs/api_error.js';
 import { canSeeSolutions, isPremium } from '#Libs/capabilities.js';
+import { examDownloadRequirement } from '#Modules/downloads/download.access.js';
 import { setNX } from '#Libs/kv.js';
 import { skipOf } from '#Libs/paginate.js';
 import {
@@ -31,9 +32,10 @@ const findVerified = async (filter, projection) => {
 
 // --- Catalogo ---------------------------------------------------------------
 
-export const listExams = async ({ institution, modality, year, area, q, page, limit }) => {
+export const listExams = async ({ institution, modality, year, area, q, free, page, limit }) => {
     const filter = { verified: true };
 
+    if (free === true) filter.is_free = true;
     if (institution) filter['institution.id'] = institution;
     if (modality) filter.modality = modality;
     if (year) filter.date = { $gte: new Date(Date.UTC(year, 0, 1)), $lt: new Date(Date.UTC(year + 1, 0, 1)) };
@@ -122,8 +124,13 @@ export const getExam = async ({ slug, area, user }) => {
     // Docentes y administradores ven las respuestas (material de trabajo) y no tienen vista previa.
     const canTeach = user ? canSeeSolutions(user) : false;
     const unrestricted = canTeach || (user ? isPremium(user) : false);
-    const served = unrestricted ? all : applyPreview(all, settings.limits.examPreviewQuestions);
+    // En la API las preguntas exigen sesion (en la web se ven sin ella): el anonimo recibe solo
+    // la ficha, con `access.login_required` para que la app pida iniciar sesion.
+    const anonymous = !user;
+    const served = anonymous ? [] : (unrestricted ? all : applyPreview(all, settings.limits.examPreviewQuestions));
     const servedQuestions = served.filter((item) => item.itype !== 'reading_section' && item.itype !== 'block').length;
+
+    const downloadRequires = examDownloadRequirement(user ?? null, exam);
 
     const favorite = user
         ? Boolean(await FavoriteExamModel.exists({ exam_id: exam._id, user_id: user._id, state: true }))
@@ -140,6 +147,11 @@ export const getExam = async ({ slug, area, user }) => {
             preview: servedQuestions < totalQuestions,
             total_questions: totalQuestions,
             served_questions: servedQuestions,
+            // Sin sesion no se sirven preguntas.
+            login_required: anonymous,
+            // Descarga del PDF: `download_requires` es null | 'login' | 'subscription' | 'institution'.
+            can_download: downloadRequires === null,
+            download_requires: downloadRequires,
         },
         items: serializeExamItems(served, { includeAnswers: canTeach }),
     };

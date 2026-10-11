@@ -384,4 +384,79 @@ describe('descargas', () => {
             assert.ok(subscription.end_date);
         });
     });
+
+    describe('examenes gratuitos (is_free): solo piden sesion', () => {
+        const refOf = (slug) => Buffer.from(JSON.stringify({ k: 'e', s: slug })).toString('base64url');
+
+        before(async () => {
+            const unmsm = { id: 'inst-unmsm', name: 'UNMSM', abrev: 'SM' };
+            const base = { institution: unmsm, files: { A: { path: 'storage/examenes/e1-a.pdf', title: 'Cuadernillo A' } }, areas: {} };
+            await db('exams').insertMany([
+                { _id: 'e5', slug: 'libre-2025', title: 'Examen libre 2025', verified: true, is_free: true, ...base },
+                { _id: 'e6', slug: 'libre-borrador', title: 'Libre sin publicar', verified: false, is_free: true, ...base },
+                { _id: 'e7', slug: 'no-libre', title: 'Marcado en falso', verified: true, is_free: false, ...base },
+            ]);
+        });
+
+        it('sin sesion -> 401: tambien un examen gratis exige iniciar sesion', async () => {
+            await get('/examenes/libre-2025/pdf').expect(401);
+        });
+
+        it('con sesion y SIN suscripcion entrega el PDF y lo audita como `free`, sin plan', async () => {
+            const user = await createUser(ctx);
+            const res = await download('/examenes/libre-2025/pdf', user).expect(200);
+
+            assert.deepEqual(res.body, tree.files['storage/examenes/e1-a.pdf']);
+            const [row] = await auditRows({ user_id: user.session.user.id });
+            assert.equal(row.source, 'free');
+            assert.equal(row.resource_type, 'exam');
+            assert.equal(row.resource_slug, 'libre-2025');
+            assert.equal(row.area, 'A');
+            assert.ok(!row.subscription);
+        });
+
+        it('un plan restringido a otra institucion tambien lo descarga, y queda como `free` y no como plan', async () => {
+            const user = await createUser(ctx);
+            await ctx.User.updateOne({ _id: user.session.user.id }, { $set: {
+                suscription: { status: 'activo', name: 'Plan Antigua', restricted_to_institution: true, institution_id: 'inst-antigua', end_date: new Date(Date.now() + 86_400_000) },
+            } });
+            await download('/examenes/libre-2025/pdf', user).expect(200);
+            const [row] = await auditRows({ user_id: user.session.user.id });
+            assert.equal(row.source, 'free');
+            assert.ok(!row.subscription);
+        });
+
+        it('quien tiene sesion con suscripcion vencida tambien descarga', async () => {
+            const expired = await createUser(ctx);
+            await ctx.User.updateOne({ _id: expired.session.user.id }, { $set: { suscription: { status: 'activo', end_date: new Date(Date.now() - 1000) } } });
+            await download('/examenes/libre-2025/pdf', expired).expect(200);
+        });
+
+        it('un examen no publicado no se descarga aunque este marcado como gratis (404)', async () => {
+            await get('/examenes/libre-borrador/pdf', await createUser(ctx)).expect(404);
+        });
+
+        it('is_free en falso sigue pidiendo suscripcion (403 SUBSCRIPTION_REQUIRED)', async () => {
+            const res = await get('/examenes/no-libre/pdf', await createUser(ctx)).expect(403);
+            assert.equal(res.body.error.code, 'SUBSCRIPTION_REQUIRED');
+        });
+
+        it('las areas inexistentes o sin archivo siguen siendo 404', async () => {
+            const user = await createUser(ctx);
+            await download('/examenes/libre-2025/pdf?area=Z', user).expect(404);
+        });
+
+        it('el enlace firmado tambien sirve un examen gratis a quien no tiene plan', async () => {
+            const user = await createUser(ctx);
+            const res = await request(ctx.app).post(`${API}/descargas/${refOf('libre-2025')}/enlace`).set(bearer(user)).expect(200);
+            const url = new URL(res.body.data.url, 'http://localhost');
+            const file = await request(ctx.app).get(url.pathname + url.search).buffer(true).parse(binary).expect(200);
+            assert.deepEqual(file.body, tree.files['storage/examenes/e1-a.pdf']);
+        });
+
+        it('no cambia el listado de la suscripcion: GET /descargas?source=exam sigue exigiendo plan', async () => {
+            const res = await get('/descargas?source=exam', await createUser(ctx)).expect(403);
+            assert.equal(res.body.error.code, 'SUBSCRIPTION_REQUIRED');
+        });
+    });
 });

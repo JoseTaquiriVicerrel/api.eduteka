@@ -22,6 +22,7 @@ const productSchema = new Schema({
     slug: { type: String },
     areas: { type: Object },
     unique: { type: Boolean, default: false },
+    is_free: { type: Boolean, default: false },
     files: [fileSchema],
 }, {
     timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },

@@ -12,6 +12,8 @@ import crypto from 'crypto';
  *                       (#Controllers/download.controllers.js)
  *   - `subscription` -> suscripcion activa, gate = authorize("Auth", true)
  *                       (#Controllers/exam_download.controllers.js)
+ *   - `free`         -> examen con `is_free`, gate = sesion iniciada
+ *                       (#Controllers/exam_download.controllers.js)
  *   - `material`     -> docx generado en el editor de materiales, gate =
  *                       authorize("Administrador")
  *                       (#Controllers/material.controllers.js)
@@ -29,7 +31,7 @@ const downloadSchema = new mongoose.Schema({
     // descargas de materiales del profesorado no se distinguen de las demas.
     user_account_type: { type: String },
     // Camino de acceso que habilito la descarga.
-    source: { type: String, enum: ['store', 'subscription', 'material'], required: true },
+    source: { type: String, enum: ['store', 'subscription', 'material', 'free'], required: true },
     resource_type: { type: String, enum: ['product', 'exam', 'material'], required: true },
     resource_id: { type: String, required: true },
     // Solo examenes: la ruta publica es por slug, no por id.

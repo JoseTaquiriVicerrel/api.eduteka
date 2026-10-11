@@ -13,6 +13,8 @@ export const ORDER_PAYMENT_METHODS = ['yape', 'plin'];
 export const ListProductsQuery = Type.Object({
     type: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
     q: Type.Optional(Type.String({ maxLength: 200 })),
+    // `free=true`: solo los de descarga gratuita; `free=false` no filtra.
+    free: Type.Optional(Type.Boolean()),
     ...paginationFields(),
 }, strict);
 
