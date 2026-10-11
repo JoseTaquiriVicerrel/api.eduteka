@@ -28,6 +28,8 @@ export const VOUCHER_REUSED_REASON = 'El comprobante ya fue usado en otro pago o
 // simultaneos del mismo comprobante no pueden aprobarse los dos.
 const CLAIM_SECONDS = 120;
 
+const MAX_SEPARATED_DIGITS = 30;
+
 const digitsOf = (value) => String(value ?? '').replace(/\D/g, '');
 
 /** Formas en que el mismo numero puede estar guardado (texto tal cual, solo digitos, numero). */
@@ -51,7 +53,8 @@ const separatedDigitsRegex = (digits) => new RegExp(`^\\D*${digits.split('').joi
 export const isVoucherReused = async (numero) => {
     const digits = digitsOf(numero);
     const candidates = operationVariants(numero);
-    if (digits.length >= 4) candidates.push(separatedDigitsRegex(digits));
+    // Tope de digitos: un numero absurdamente largo (texto de la IA) armaria una regex enorme que Mongo rechaza.
+    if (digits.length >= 4 && digits.length <= MAX_SEPARATED_DIGITS) candidates.push(separatedDigitsRegex(digits));
     const filter = { 'ai_analysis.numero_operacion': { $in: candidates } };
     const found = await Promise.all([
         PaymentModel.exists(filter).exec(),

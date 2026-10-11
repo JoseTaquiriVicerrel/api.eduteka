@@ -1,4 +1,5 @@
 import redisClient from '#Config/redis.js';
+import { settings } from '#Config/settings.js';
 import { logger } from '#Libs/logger.js';
 
 // Almacen clave-valor efimero de la API (rate limit, enfriamientos de codigos,
@@ -30,13 +31,28 @@ const memTtl = (key) => {
     return entry ? Math.max(1, Math.ceil((entry.expiresAt - Date.now()) / 1000)) : 0;
 };
 
+// En produccion, memoria significa limites y bloqueos por proceso (no compartidos y sin
+// persistir): se registra como error, como maximo una vez por minuto para no inundar el log.
+const REDIS_ALERT_INTERVAL_MS = 60_000;
+let lastRedisAlert = 0;
+
+const reportRedisFailure = (error) => {
+    const production = settings.isProduction;
+    const now = Date.now();
+    if (production && now - lastRedisAlert < REDIS_ALERT_INTERVAL_MS) return;
+    lastRedisAlert = now;
+    const message = 'Redis fallo; usando memoria para esta operacion (rate limit y bloqueos sin compartir)';
+    if (production) logger.error({ err: error.message }, message);
+    else logger.warn({ err: error.message }, message);
+};
+
 // Ejecuta la version Redis y, si falla, la de memoria.
 const run = async (redisOp, memoryOp) => {
     if (usingRedis()) {
         try {
             return await redisOp();
         } catch (error) {
-            logger.warn({ err: error.message }, 'Redis fallo; usando memoria para esta operacion');
+            reportRedisFailure(error);
         }
     }
     return memoryOp();

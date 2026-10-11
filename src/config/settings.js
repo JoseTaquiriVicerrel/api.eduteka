@@ -140,6 +140,25 @@ if (isProduction && paymentAiProvider === 'memory') problems.push('PAYMENT_AI_PR
 
 const jwtSecret = required('JWT_SECRET', { minLength: 32 });
 
+// --- Comprobaciones de produccion ---------------------------------------------------
+// JWT_PRIVATE_KEY firma la cookie de sesion del monolito: reutilizarla haria valer un token de
+// una aplicacion en la otra. Es un error. TRUST_PROXY y LISTEN_HOST dependen de la
+// infraestructura (Nginx delante), asi que solo se avisa.
+if (isProduction && env.JWT_PRIVATE_KEY && env.JWT_PRIVATE_KEY.trim() === jwtSecret) {
+    problems.push('JWT_SECRET debe ser distinto de JWT_PRIVATE_KEY');
+}
+if (isProduction) {
+    const warnings = [];
+    if (parseTrustProxy() === false) {
+        warnings.push('TRUST_PROXY=false: tras Nginx/Cloudflare, req.ip sera la del proxy y el rate limit por IP se vuelve global (usa TRUST_PROXY=1)');
+    }
+    const listen = str('LISTEN_HOST', null);
+    if (!['127.0.0.1', '::1', 'localhost'].includes(listen)) {
+        warnings.push(`LISTEN_HOST=${listen ?? '(vacio)'}: el puerto queda expuesto sin pasar por el proxy; con TRUST_PROXY=1 se podria falsear X-Forwarded-For (usa 127.0.0.1)`);
+    }
+    for (const warning of warnings) console.warn(`[config] ADVERTENCIA: ${warning}`);
+}
+
 const settings = Object.freeze({
     nodeEnv,
     isProduction,

@@ -232,7 +232,7 @@ try {
   redisClient = createMemoryClient();
 
   const detail = err?.message ?? String(err);
-  if (process.env.MODE === 'PRODUCTION') {
+  if (process.env.MODE === 'PRODUCTION' || process.env.NODE_ENV === 'production') {
     // En produccion esto es grave: las sesiones dejan de compartirse entre
     // instancias y se pierden al reiniciar. La app sigue en pie a proposito
     // (mejor degradada que caida), pero tiene que verse en los logs.

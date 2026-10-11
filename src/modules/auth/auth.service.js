@@ -19,9 +19,11 @@ import { serializeUser } from '#Serializers/user.serializer.js';
 // Notas de diseño:
 //  - Los codigos de 6 digitos se guardan como HMAC (#Libs/tokens.js), con
 //    vencimiento e intentos maximos. Agotar los intentos invalida el codigo.
-//  - Registro y envio de codigos comparten un enfriamiento por correo que se
-//    aplica ANTES de mirar si la cuenta existe: asi la respuesta no delata que
-//    correos estan registrados.
+//  - Reenvio de codigo y recuperacion aplican el enfriamiento por correo ANTES
+//    de mirar si la cuenta existe: asi la respuesta no delata que correos estan
+//    registrados. El registro SI responde 409 a un correo ya verificado (contrato
+//    con la app, para que el usuario inicie sesion); queda acotado por el limite
+//    por IP del bucket `auth`.
 //  - Tras exceder los fallos de login de un correo se rechaza hasta la
 //    respuesta correcta, para que el bloqueo no sirva de oraculo de contraseñas.
 
