@@ -17,7 +17,7 @@ describe('refresh con ventana de gracia', () => {
         counter += 1;
         const email = `grace${counter}@example.com`;
         await post('/register', {
-            email, password: 'Passw0rd!', username: 'Usuario Gracia', departament: 'Lima', account_type: 'Estudiante',
+            email, password: 'Passw0rd!', username: 'Usuario Gracia', departament: 'Lima', account_type: 'Estudiante', edkTerms: true,
         }).expect(201);
         const res = await post('/verify-code', { email, code: lastCode(ctx.outbox, email) }).expect(200);
         return res.body.data;

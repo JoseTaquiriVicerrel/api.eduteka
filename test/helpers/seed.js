@@ -74,6 +74,7 @@ export async function createUser(ctx, overrides = {}) {
         username: 'Usuario Semilla',
         departament: 'Lima',
         account_type: 'Estudiante',
+        edkTerms: true,
         ...overrides,
     };
     await request(ctx.app).post('/api/v1/auth/register').send(body).expect(201);

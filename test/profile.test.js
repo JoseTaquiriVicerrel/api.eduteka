@@ -262,7 +262,7 @@ describe('perfil', () => {
 
             // El correo original queda libre para registrarse de nuevo.
             await request(ctx.app).post(`${API}/auth/register`).send({
-                email: user.email, password: 'Passw0rd!', username: 'Vuelvo', departament: 'Lima', account_type: 'Estudiante',
+                email: user.email, password: 'Passw0rd!', username: 'Vuelvo', departament: 'Lima', account_type: 'Estudiante', edkTerms: true,
             }).expect(201);
         });
     });

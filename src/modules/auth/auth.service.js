@@ -1,3 +1,4 @@
+import { buildConsentFields } from '#Libs/legal_versions.js';
 import bcrypt from 'bcrypt';
 import UserModel from '#Models/user_model.js';
 import RefreshTokenModel from '#Models/refresh_token_model.js';
@@ -180,6 +181,7 @@ export const register = async (body) => {
         university: body.university,
         teaching_area: body.teaching_area,
         notification: body.edkNotification ?? false,
+        ...buildConsentFields({ marketing: body.edkNotification === true }),
         password: await hashPassword(body.password),
     };
 

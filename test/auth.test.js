@@ -19,6 +19,7 @@ const newUser = (overrides = {}) => {
         username: 'Usuario Prueba',
         departament: 'Lima',
         account_type: 'Estudiante',
+        edkTerms: true,
         ...overrides,
     };
 };
@@ -64,6 +65,34 @@ describe('POST /auth/register', () => {
         assert.notEqual(user.token_verify, code);
         assert.match(user.token_verify, /^[0-9a-f]{64}$/);
         assert.ok(user.token_verify_expires > new Date());
+    });
+
+    it('guarda la aceptacion de los terminos (version y fecha) y el consentimiento de novedades solo si se marca', async () => {
+        const con = newUser({ email: 'con.novedades@example.com', edkNotification: true });
+        const sin = newUser({ email: 'sin.novedades@example.com' });
+        await post('/register', con).expect(201);
+        await post('/register', sin).expect(201);
+
+        const a = await ctx.User.findOne({ email: con.email }).lean();
+        const b = await ctx.User.findOne({ email: sin.email }).lean();
+        assert.equal(a.terms_version, '2.0');
+        assert.ok(a.terms_accepted_at instanceof Date);
+        assert.ok(a.notification_consented_at instanceof Date);
+        assert.equal(b.terms_version, '2.0');
+        assert.ok(b.terms_accepted_at instanceof Date);
+        assert.equal(b.notification_consented_at, null);
+    });
+
+    it('exige aceptar los terminos: sin edkTerms o con false responde 422', async () => {
+        const sinCampo = newUser();
+        delete sinCampo.edkTerms;
+        const r1 = await post('/register', sinCampo).expect(422);
+        assert.ok(r1.body.error.details.some((detail) => detail.field === 'edkTerms'));
+
+        const r2 = await post('/register', newUser({ edkTerms: false })).expect(422);
+        assert.ok(r2.body.error.details.some((detail) => detail.field === 'edkTerms'));
+
+        assert.equal(await ctx.User.countDocuments({ email: sinCampo.email }), 0, 'no debe crear la cuenta');
     });
 
     it('rechaza datos invalidos con 422 y detalle por campo', async () => {

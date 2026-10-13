@@ -22,6 +22,8 @@ export const RegisterBody = Type.Object({
     university: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
     teaching_area: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
     edkNotification: Type.Optional(Type.Boolean()),
+    // Aceptacion de los Terminos y la Politica de Privacidad: obligatoria y solo vale `true`.
+    edkTerms: Type.Literal(true),
 }, strict);
 
 export const ResendCodeBody = Type.Object({ email: Email }, strict);

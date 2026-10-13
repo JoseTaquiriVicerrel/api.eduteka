@@ -11,7 +11,7 @@ describe('enfriamiento de codigos', () => {
     beforeEach(() => ctx.kv.flushMemory());
 
     const post = (path, body) => request(ctx.app).post(`/api/v1/auth${path}`).send(body);
-    const user = (email) => ({ email, password: 'Passw0rd!', username: 'Usuario Prueba', departament: 'Lima', account_type: 'Estudiante' });
+    const user = (email) => ({ email, password: 'Passw0rd!', username: 'Usuario Prueba', departament: 'Lima', account_type: 'Estudiante', edkTerms: true });
 
     it('reenviar justo despues de registrarse -> 429 con Retry-After; pasado el enfriamiento, 200', async () => {
         await post('/register', user('cool1@example.com')).expect(201);

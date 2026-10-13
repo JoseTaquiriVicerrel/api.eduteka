@@ -43,6 +43,10 @@ const UserSchema = new Schema({
     mock_exam: { type: Object },
     last_session: { type: Date },
     notification: { type: Boolean, default: false },
+    // Prueba de la aceptacion de los textos legales (version y fecha) y del consentimiento opcional de novedades.
+    terms_version: { type: String },
+    terms_accepted_at: { type: Date },
+    notification_consented_at: { type: Date },
     isVerified: { type: Boolean, default: false },
     // OBSOLETO. Fue la llave de entrada a la beta de docentes mientras esta era
     // cerrada. Ya no lo lee nadie: la beta esta abierta a toda cuenta de tipo
