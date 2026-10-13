@@ -192,7 +192,7 @@ Solo se sirven preguntas `verified:true, state:true, origin != 'Docente'`.
 `user_id, question_id, answer`. Índice `{user_id, question_id}`.
 
 ### Exam
-`title, description, slug, abrev, type, modality, institution{id,name,abrev}, subjects[], areas (objeto por área), date, state, favorites (contador), verified, image_post, files{por área}, general_items[], unique (área única)`.
+`title, description, slug, abrev, type, modality, institution{id,name,abrev}, subjects[], areas (objeto por área), date, state, favorites (contador), verified, **is_free** (descarga gratuita con sesión), image_post, files{por área}, general_items[], unique (área única)`.
 
 ### FavoriteExam
 `exam_id, user_id, state`. Índice `{exam_id,state}`.
@@ -209,7 +209,7 @@ Solo se sirven preguntas `verified:true, state:true, origin != 'Docente'`.
 > **El intento vivo NO está aquí sino en `UserSimulacrum`** (`answers`, `start_exam`, `end_exam`, `score`, `attempt_number`…). `reintentar` copia el intento vivo a `SimulacrumAttempt` (índice único `(user_simulacrum_id, attempt_number)` que hace idempotente el doble clic), sube `attempt_number` y limpia los campos del intento. `official_score*` congela el primer intento y es el que usa el ranking. Por eso, en §6.5 el `attempt_id` de `respuestas` y `finalizar` es el **`user_simulacrum_id`**.
 
 ### Product
-`name, description, slug, price, images[], poster, type, type_file, state (publicado), unique, areas (para exámenes), files[{name, path, area}]`. 🔒`files[].path` nunca sale.
+`name, description, slug, price, images[], poster, type, type_file, state (publicado), unique, **is_free** (precio 0, se descarga desde su examen `source`), areas (para exámenes), files[{name, path, area}]`. 🔒`files[].path` nunca sale.
 
 ### Order
 `user_id, items[{product_id, name, price, quantity, areas[]}], total, discount, payment_method ('transferencia'|'yape'|'plin'|'tarjeta'), payment_proof (ruta privada), status ('pending'|'verified'|'rejected'), status_reason, message`.
@@ -221,7 +221,7 @@ Solo se sirven preguntas `verified:true, state:true, origin != 'Docente'`.
 `question_id, user_id, type ('Pregunta'|'Opción'|'Respuesta'), description (≤500), status ('Pendiente'|'Revisado'|'Resuelto'|'Rechazado'), reviewed_at, adminNote`.
 
 ### Download *(bitácora)*
-`user_id, source ('store'|'subscription'|'material'), resource_type ('product'|'exam'|'material'), resource_id, resource_slug, resource_name, area, file_name, order_id, ip, user_agent`.
+`user_id, source ('store'|'subscription'|'free'|'material'), resource_type ('product'|'exam'|'material'), resource_id, resource_slug, resource_name, area, file_name, order_id, ip, user_agent`.
 
 ---
 
@@ -290,7 +290,7 @@ Respuesta de corrección:
 | 🌐 | `GET /examenes/:slug` | Ficha pública (áreas, archivos, `access`). **Las preguntas exigen sesión** (en la web se ven sin ella); con sesión, vista previa o completo con 💎 |
 | 🔑 | `POST /examenes/:id/favorito` | Toggle. Devuelve `{favorite, favorites}` |
 | 🔑 | `GET /examenes/favoritos` | Mis favoritos |
-| 💎 | `GET /examenes/:slug/pdf?area=` | PDF (§6.8) |
+| 🔑 / 💎 | `GET /examenes/:slug/pdf?area=` | PDF (§6.8): con sesión si el examen es gratuito (`is_free`); si no, con suscripción |
 
 **Notas de implementación (fase 6, verificadas con pruebas):**
 - Solo se sirven exámenes `verified:true`. Catálogo (`GET /examenes`): filtros `institution` (id), `modality`, `year` (año de `date`), `area` (id o slug del catálogo; casa con `subjects` sin distinguir mayúsculas) y `q` (título, texto literal); paginado, más reciente primero. Cada examen expone `has_pdf` pero **nunca la ruta del archivo** (`files[].path`): el PDF irá por el endpoint autorizado de la fase 8.
@@ -298,7 +298,13 @@ Respuesta de corrección:
 - **Detalle** (`GET /examenes/:slug?area=`): público (como la web). `area` es el **código del cuadernillo** (`A`, `B`, `I`…; sin él, el primero). Devuelve `areas[]` (cuadernillos con `solution`/`verified`), `files[]` (`{area,title}`), `access` y `items[]` en orden: `{kind:'reading', id, title, text}` o `{kind:'question', id, n, question, options[{key,text}], area, topic, type}`. Se omiten los marcadores de conflicto y los ids que ya no están en el banco. Sirve también los exámenes antiguos que llevan las preguntas dentro del cuadernillo.
 - **Sin respuestas:** las preguntas salen sin `rpta`/`resolution`. La corrección se pide pregunta a pregunta con `POST /preguntas/:id/responder` (las preguntas de examen son las del banco, así que solo se pueden responder las que están verificadas y tienen clave). **Docentes y administradores** reciben además `correct` y `explanation` (la web les muestra la respuesta marcada) y no tienen vista previa.
 - **Vista previa:** la especificación pide vista previa gratuita y examen completo con suscripción, pero la web hoy muestra el examen completo a todos (la suscripción solo protege los PDF). Se implementó como ajuste: `EXAM_PREVIEW_QUESTIONS` (por defecto **0 = completo**). Con N > 0, quien no tenga suscripción vigente ve las primeras N preguntas de cada cuadernillo (y las lecturas que las preceden), y `access` lo indica (`{preview, total_questions, served_questions}`). **Valor pendiente de decidir.**
-- **Examenes gratuitos (`is_free`):** el catálogo y la ficha incluyen `is_free`; el PDF de un examen gratis se descarga con solo tener sesión (sin suscripción ni restricción de institución) y se audita con `source: 'free'`. `files[]` de la ficha trae `download_url` (endpoint con Bearer, nunca la ruta del disco).
+- **Exámenes gratuitos (`is_free`):** el administrador los marca en el panel web (casilla "gratis" del examen, que además exige que esté publicado como producto). Qué cambia en la API:
+  - **Descarga:** `GET /examenes/:slug/pdf` de un examen gratuito pide **solo sesión** (sin suscripción ni restricción de institución) y se audita con `source: 'free'`. La regla vive en `examDownloadRequirement(user, exam)` (`download.access.js`): `null` | `'login'` | `'subscription'` | `'institution'`; la usan la descarga, la ficha y `GET /productos/:slug`. Un administrador descarga cualquiera.
+  - **Catálogo y ficha:** `is_free` en cada examen, `?free=true` filtra (`free=false` no filtra). La ficha suma a `access`: `login_required`, `can_download` y `download_requires`; y `files[]` trae `download_url` (endpoint con Bearer, nunca la ruta del disco).
+  - **Lista de descargas:** `GET /descargas?source=exam` ya no exige plan: toda cuenta ve los gratuitos y, con suscripción vigente, también los de pago (§6.8). Cada elemento trae `exam.is_free`.
+  - **Fuente de verdad:** la API mira `Exam.is_free`, no el `is_free` del producto (igual que `exam_download.controllers.js` de la web). Los dos se escriben juntos al guardar el examen en el panel; si el producto figura gratis y el examen no, el examen se trata como de pago (`download_requires: 'subscription'`). Hay que volver a guardar el examen en el panel.
+  - **Archivos en desarrollo:** una base copiada de producción no trae los PDF (`files[].path` apunta a `FILES_ROOT_DIR/storage/examenes/…`): el listado marca `available:false` y el PDF responde `404 El archivo ya no está disponible` después de autorizar (nunca `403`).
+  - **Android:** badge "Gratis" en la lista y la ficha, filtro "Solo con descarga gratuita" (`?free=true`), y "Mis descargas → Exámenes" lista los gratuitos sin plan con un aviso para suscribirse. Descargar uno de pago sin plan da `403 SUBSCRIPTION_REQUIRED` y la app abre su hoja de planes.
 - **Sesión para ver las preguntas (diferencia con la web):** sin token, `GET /examenes/:slug` devuelve la ficha con `items: []`; la web sí las muestra a visitantes. `access` suma `login_required` (`true` si no hay sesión), `can_download` y `download_requires` (`null | 'login' | 'subscription' | 'institution'`, calculado por la misma regla que usa la descarga).
 - **Favoritos:** `POST /examenes/:id/favorito` exige sesión. Sin cuerpo **alterna**; con `{favorite:true|false}` **fija** el estado (reenviar tras un corte de red no lo invierte; es lo que hace la web). El contador se recalcula contando (no sumando deltas) y se escribe en `Exam.favorites`, un campo que no invalida el caché `exams:<slug>` del monolito. Doble toque: `409`. `GET /examenes/favoritos` lista los del usuario, el último marcado primero, sin los desmarcados ni los no publicados. **Diferencia con la web:** allí el favorito funciona sin sesión y solo suma al contador; aquí exige cuenta (la especificación lo pide) para que el contador sea fiable.
 - **Caché:** el detalle no se cachea en la API (cada petición lee el examen). El caché `exams:<slug>` de Redis del monolito incluye `rpta` y no se reutiliza. Si el tráfico lo pide, se puede añadir uno propio con clave `exams:<slug>:api:…` para que lo invalide el hook de `exam_schema`.
@@ -423,9 +429,9 @@ Al verificar un pedido/suscripción (endpoint de administración, §8) se activa
 ### 6.8 Descargas de PDF
 | | Ruta | Descripción |
 |---|---|---|
-| 🔑 | `GET /descargas` | Archivos a los que el usuario tiene derecho: `{id, name, type_file, size, source:'order'\|'exam'\|'list', download_url}` |
+| 🔑 | `GET /descargas?source=exam&free=&q=&institution=&modality=` | Archivos a los que el usuario tiene derecho (`source=exam`: exámenes gratuitos y, con plan, de pago; `free=true` deja solo los gratuitos): `{id, name, type_file, size, source:'order'\|'exam'\|'list', download_url}` |
 | 🔑 | `GET /descargas/pedidos/:order_id/:product_id/:file` | Binario. Exige pedido `verified` del usuario y, si el producto es de examen, que el área esté comprada |
-| 💎 | `GET /examenes/:slug/pdf?area=` | PDF del examen |
+| 🔑 / 💎 | `GET /examenes/:slug/pdf?area=` | PDF del examen: 🔑 si el examen es gratuito (`is_free`), 💎 si no |
 | 🔑 | `GET /mis-listas/:id/pdf` | PDF de una lista propia (generado con `pdf-lib`) |
 | 🔑 | `POST /descargas/:id/enlace` | *(opcional)* URL firmada de 60 s para `DownloadManager` |
 
@@ -437,10 +443,10 @@ Al verificar un pedido/suscripción (endpoint de administración, §8) se activa
 
 **Notas de implementación (fase 8, verificadas con pruebas):**
 - **Dónde están los archivos:** `files[].path` de productos y exámenes son rutas relativas a la carpeta `src` del monolito (`storage/examenes/…`). La API las resuelve contra `FILES_ROOT_DIR` (en el monolito, su `src`; por defecto, la carpeta que contiene a `STORAGE_DIR`). La ruta se valida con `realpath` contra la raíz: un `../` en el dato o un enlace simbólico que salga de ella → `404`, nunca se lee. **Ninguna ruta de disco sale en ninguna respuesta**; solo `available`, `size` y la URL de descarga.
-- **`GET /descargas`** (sesión): por defecto lo **comprado** (pedidos `verified`), con las áreas compradas en los exámenes por áreas; cada elemento `{id, name, type_file, area, size, source:'order', available, download_url}`. `?source=exam` lista los PDF de la **suscripción** (exige plan vigente → `403 SUBSCRIPTION_REQUIRED`), un elemento por archivo, paginado por examen, con filtros `institution`, `modality`, `q`; un plan restringido a una institución solo lista la suya.
-- **Descargas:** `GET /descargas/pedidos/:order_id/:product_id/:file` (`:file` = nombre del archivo) y `GET /examenes/:slug/pdf?area=` (💎; sin `area`, el primer cuadernillo con archivo). Respuesta binaria con `Content-Disposition: attachment`, `Content-Length`, `Accept-Ranges: bytes` y soporte de **`Range`** (descargas reanudables, `206`). Permisos: pedido de otro usuario → `404`; propio sin verificar/rechazado → `403`; área no comprada → `403`; examen sin suscripción **vigente** (estado y fecha) → `403`; plan restringido a otra institución → `403 INSTITUTION_RESTRICTED`; administrador sin plan, permitido. Cada descarga **entregada** se registra en `Download` (sin `await`, no la retrasa ni la rompe).
+- **`GET /descargas`** (sesión): por defecto lo **comprado** (pedidos `verified`), con las áreas compradas en los exámenes por áreas; cada elemento `{id, name, type_file, area, size, source:'order', available, download_url}`. `?source=exam` lista los PDF de **exámenes**, un elemento por archivo, paginado por examen, con filtros `institution`, `modality`, `q` y `free`. Toda cuenta con sesión ve los **gratuitos** (`exam.is_free`) de cualquier institución; con suscripción vigente ve además los de pago, y un plan restringido a una institución solo los de pago de la suya. Sin plan ya no es un `403`: la lista trae solo los gratuitos (o viene vacía). `free=true` deja únicamente los gratuitos; `free=false` no filtra. El `403 SUBSCRIPTION_REQUIRED` queda en la descarga del PDF de un examen de pago.
+- **Descargas:** `GET /descargas/pedidos/:order_id/:product_id/:file` (`:file` = nombre del archivo) y `GET /examenes/:slug/pdf?area=` (💎; sin `area`, el primer cuadernillo con archivo). Respuesta binaria con `Content-Disposition: attachment`, `Content-Length`, `Accept-Ranges: bytes` y soporte de **`Range`** (descargas reanudables, `206`). Permisos: pedido de otro usuario → `404`; propio sin verificar/rechazado → `403`; área no comprada → `403`; examen de pago sin suscripción **vigente** (estado y fecha) → `403 SUBSCRIPTION_REQUIRED` (uno `is_free` solo pide sesión: sin sesión `401`); plan restringido a otra institución → `403 INSTITUTION_RESTRICTED`; administrador sin plan, permitido. Cada descarga **entregada** se registra en `Download` (sin `await`, no la retrasa ni la rompe).
 - **Enlaces firmados (opcional del documento, implementado):** `POST /descargas/:id/enlace` (el `id` sale de las listas) devuelve `{url, expires_in:60}`; `GET /descargas/archivo?token=` se canjea **sin Bearer** (para `DownloadManager`) y **vuelve a comprobar** usuario activo y permiso, así que un pedido rechazado o un plan vencido en esos 60 s no descarga. El token es un JWT `typ:'download'`: un access token no sirve como enlace.
-- **`GET /perfil/recursos`:** `{orders:[…], subscription:{active, plan_name, end_date, locked_institution, exams_url}}`. Incluye pedidos verificados y pendientes (como la web); los archivos de uno pendiente se muestran con `available:false` y sin enlace.
+- **`GET /perfil/recursos`:** `{orders:[…], free_exams_url, subscription:{active, plan_name, end_date, locked_institution, exams_url}}`. `free_exams_url` lista los exámenes gratuitos (con o sin plan); `exams_url` es `null` sin suscripción. Incluye pedidos verificados y pendientes (como la web); los archivos de uno pendiente se muestran con `available:false` y sin enlace.
 - **`GET /mis-listas/:id/pdf`:** PDF de **texto** generado con `pdf-lib` (sin navegador). **Limitación:** la web lo genera con Chromium + MathJax; `pdf-lib` no renderiza HTML, así que las fórmulas salen como LaTeX en texto plano, las imágenes como `[imagen]` y los símbolos que la fuente estándar no tiene se transliteran. Sirve para repasar sin conexión; para material con mucha matemática conviene el PDF de la web (o añadir Chromium a la API). `?include_answers=true` añade la clave de respuestas, solo a suscriptores y docentes (si no, el PDF saltaría el cupo diario de respuestas).
 - Tamaños: el listado hace un `stat` por archivo (hasta 20 exámenes por página).
 

@@ -4,8 +4,10 @@ import { paginationFields } from '#Libs/paginate.js';
 const strict = { additionalProperties: false };
 
 export const ListDownloadsQuery = Type.Object({
-    // order = lo comprado; exam = los examenes que da la suscripcion.
+    // order = lo comprado; exam = los examenes gratuitos y, con suscripcion, tambien los de pago.
     source: Type.Optional(Type.Union([Type.Literal('order'), Type.Literal('exam')])),
+    // Solo con source=exam: `free=true` deja unicamente los gratuitos; `free=false` no filtra.
+    free: Type.Optional(Type.Boolean()),
     institution: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
     modality: Type.Optional(Type.String({ minLength: 1, maxLength: 60 })),
     q: Type.Optional(Type.String({ maxLength: 200 })),

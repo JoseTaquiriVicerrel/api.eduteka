@@ -105,24 +105,26 @@ export const subscriptionAccess = (user) => {
 };
 
 /**
- * Examenes con archivo que la suscripcion permite descargar, un elemento por archivo.
- * Con un plan restringido a una institucion solo salen los de esa; sin restriccion se
- * puede filtrar por `institution`, `modality` y titulo. Pagina por EXAMEN.
+ * Examenes con archivo que `user` puede descargar, un elemento por archivo. Pagina por EXAMEN.
+ *  - Los gratuitos (`is_free`) los ve toda cuenta con sesion, tenga o no plan, de cualquier institucion.
+ *  - Los de pago, solo con suscripcion vigente; con un plan restringido a una institucion, solo los de esa.
+ * Sin plan, un listado vacio NO es un error: aun puede haber gratuitos. `free=true` deja solo
+ * los gratuitos; `institution`, `modality` y `q` filtran sobre lo que ya puede ver.
  */
-export const listExamFiles = async (user, { institution, modality, q, page, limit }) => {
+export const listExamFiles = async (user, { institution, modality, q, free, page, limit }) => {
     const { premium, lockedInstitution } = subscriptionAccess(user);
-    if (!premium) throw ApiError.subscriptionRequired('Necesitas una suscripción activa para descargar exámenes.');
 
     const filter = { verified: true, files: { $exists: true, $ne: null } };
-    const institutionId = lockedInstitution ?? institution;
-    if (institutionId) filter['institution.id'] = institutionId;
+    if (free === true || !premium) filter.is_free = true;
+    else if (lockedInstitution) filter.$or = [{ is_free: true }, { 'institution.id': lockedInstitution }];
+    if (institution) filter['institution.id'] = institution;
     if (modality) filter.modality = modality;
 
     const search = String(q ?? '').replace(/\p{C}/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
     if (search) filter.title = new RegExp(escapeRegex(search), 'i');
 
     const [exams, total] = await Promise.all([
-        ExamModel.find(filter, { title: 1, slug: 1, modality: 1, institution: 1, files: 1 })
+        ExamModel.find(filter, { title: 1, slug: 1, modality: 1, institution: 1, files: 1, is_free: 1 })
             .sort({ created_at: -1, _id: 1 })
             .skip(skipOf({ page, limit }))
             .limit(limit)
@@ -145,7 +147,10 @@ export const listExamFiles = async (user, { institution, modality, q, page, limi
             area,
             size: stored?.size ?? null,
             source: 'exam',
-            exam: { id: exam._id, slug: exam.slug, title: exam.title, modality: exam.modality ?? null, institution: exam.institution?.abrev ?? null },
+            exam: {
+                id: exam._id, slug: exam.slug, title: exam.title, modality: exam.modality ?? null,
+                institution: exam.institution?.abrev ?? null, is_free: exam.is_free === true,
+            },
             available: Boolean(stored),
             download_url: stored ? examUrl(exam.slug, area) : null,
         };
@@ -198,6 +203,8 @@ export const getResources = async (user) => {
 
     return {
         orders: serializedOrders,
+        // Los examenes gratuitos los lista toda cuenta con sesion, tenga o no plan.
+        free_exams_url: publicUrl('/descargas?source=exam&free=true'),
         subscription: {
             active: premium,
             plan_name: premium ? plan.name ?? null : null,

@@ -174,10 +174,11 @@ describe('descargas', () => {
     });
 
     describe('GET /descargas?source=exam y GET /examenes/:slug/pdf', () => {
-        it('sin suscripcion no se listan ni se descargan (403 SUBSCRIPTION_REQUIRED)', async () => {
+        it('sin suscripcion no se listan ni se descargan los de pago (403 SUBSCRIPTION_REQUIRED en el PDF; el listado sale vacio)', async () => {
             const free = await createUser(ctx);
-            const list = await get('/descargas?source=exam', free).expect(403);
-            assert.equal(list.body.error.code, 'SUBSCRIPTION_REQUIRED');
+            const list = await get('/descargas?source=exam', free).expect(200);
+            assert.deepEqual(list.body.data, []);
+            assert.equal(list.body.meta.total, 0);
             const pdf = await get('/examenes/unmsm-2025-i/pdf', free).expect(403);
             assert.equal(pdf.body.error.code, 'SUBSCRIPTION_REQUIRED');
             await get('/examenes/unmsm-2025-i/pdf').expect(401);
@@ -454,9 +455,77 @@ describe('descargas', () => {
             assert.deepEqual(file.body, tree.files['storage/examenes/e1-a.pdf']);
         });
 
-        it('no cambia el listado de la suscripcion: GET /descargas?source=exam sigue exigiendo plan', async () => {
-            const res = await get('/descargas?source=exam', await createUser(ctx)).expect(403);
-            assert.equal(res.body.error.code, 'SUBSCRIPTION_REQUIRED');
+    });
+
+    describe('GET /descargas?source=exam con examenes gratuitos', () => {
+        // Los de pago con archivo son e1 (A, B) y e2 (I); los de este describe: e5 libre y e7 de pago (ver el describe anterior).
+        const slugsOf = (res) => [...new Set(res.body.data.map((file) => file.exam.slug))].sort();
+
+        it('exige sesion', async () => {
+            await get('/descargas?source=exam').expect(401);
+        });
+
+        it('sin suscripcion lista solo los gratuitos publicados, con enlace y sin rutas', async () => {
+            const user = await createUser(ctx);
+            const res = await get('/descargas?source=exam', user).expect(200);
+
+            assert.deepEqual(slugsOf(res), ['libre-2025']);
+            const [file] = res.body.data;
+            assert.equal(file.exam.is_free, true);
+            assert.equal(file.available, true);
+            assert.equal(file.size, tree.files['storage/examenes/e1-a.pdf'].length);
+            assert.equal(file.download_url, '/api/v1/examenes/libre-2025/pdf?area=A');
+            assertNoPaths(res.body);
+            assert.deepEqual(res.body.meta, { page: 1, limit: 20, total: 1, has_more: false });
+
+            // El enlace listado realmente se descarga.
+            await download(file.download_url.replace('/api/v1', ''), user).expect(200);
+        });
+
+        it('con suscripcion lista los de pago Y los gratuitos, marcando cual es cual', async () => {
+            const res = await get('/descargas?source=exam', await premium()).expect(200);
+            assert.deepEqual(slugsOf(res), ['libre-2025', 'no-libre', 'unmsm-2024-ii', 'unmsm-2025-i']);
+            const flags = Object.fromEntries(res.body.data.map((file) => [file.exam.slug, file.exam.is_free]));
+            assert.deepEqual(flags, { 'libre-2025': true, 'no-libre': false, 'unmsm-2024-ii': false, 'unmsm-2025-i': false });
+        });
+
+        it('?free=true deja solo los gratuitos aunque haya plan; ?free=false no filtra; un valor invalido es 422', async () => {
+            const user = await premium();
+            assert.deepEqual(slugsOf(await get('/descargas?source=exam&free=true', user).expect(200)), ['libre-2025']);
+            assert.equal((await get('/descargas?source=exam&free=false', user).expect(200)).body.data.length, 5);
+            await get('/descargas?source=exam&free=quizas', user).expect(422);
+        });
+
+        it('un plan restringido a una institucion ve los de pago de la suya y los gratuitos de todas', async () => {
+            const locked = await createUser(ctx);
+            await ctx.User.updateOne({ _id: locked.session.user.id }, { $set: {
+                suscription: { status: 'activo', restricted_to_institution: true, institution_id: 'inst-antigua', end_date: new Date(Date.now() + 86_400_000) },
+            } });
+
+            // Antigua no tiene examenes de pago con archivo; UNMSM si, pero no son de su plan.
+            assert.deepEqual(slugsOf(await get('/descargas?source=exam', locked).expect(200)), ['libre-2025']);
+            // Pedir otra institucion no abre los de pago de esa: solo sus gratuitos.
+            assert.deepEqual(slugsOf(await get('/descargas?source=exam&institution=inst-unmsm', locked).expect(200)), ['libre-2025']);
+            assert.deepEqual(slugsOf(await get('/descargas?source=exam&institution=inst-antigua', locked).expect(200)), []);
+        });
+
+        it('los filtros institucion, modalidad y titulo actuan sobre lo que el usuario puede ver', async () => {
+            const user = await createUser(ctx);
+            assert.deepEqual(slugsOf(await get('/descargas?source=exam&q=libre', user).expect(200)), ['libre-2025']);
+            assert.deepEqual(slugsOf(await get('/descargas?source=exam&q=2025-i', user).expect(200)), []);
+            assert.deepEqual(slugsOf(await get('/descargas?source=exam&institution=inst-antigua', user).expect(200)), []);
+        });
+
+        it('un examen no publicado, aunque sea gratis, no se lista', async () => {
+            const res = await get('/descargas?source=exam&q=sin publicar', await createUser(ctx)).expect(200);
+            assert.deepEqual(res.body.data, []);
+        });
+
+        it('/perfil/recursos indica donde listar los gratuitos, con o sin plan', async () => {
+            const user = await createUser(ctx);
+            const { data } = (await get('/perfil/recursos', user).expect(200)).body;
+            assert.equal(data.free_exams_url, '/api/v1/descargas?source=exam&free=true');
+            assert.equal(data.subscription.exams_url, null);
         });
     });
 });
