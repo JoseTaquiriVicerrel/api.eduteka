@@ -76,7 +76,13 @@ const serializeSummary = (simulacrum, enrollment, now) => ({
     description: simulacrum.description ?? null,
     image: simulacrum.image_post ? absoluteUrl(simulacrum.image_post) : null,
     institution: simulacrum.institution
-        ? { id: simulacrum.institution.id ?? null, name: simulacrum.institution.name ?? null, abrev: simulacrum.institution.abrev ?? null }
+        ? {
+            id: simulacrum.institution.id ?? null,
+            name: simulacrum.institution.name ?? null,
+            abrev: simulacrum.institution.abrev ?? null,
+            // Logo copiado al asignar la institucion en el panel (igual que en los examenes).
+            image: simulacrum.institution.image ? absoluteUrl(simulacrum.institution.image) : null,
+        }
         : null,
     price: simulacrum.price ?? 0,
     duration_minutes: simulacrum.duration ?? null,

@@ -37,7 +37,8 @@ export const listExams = async ({ institution, modality, year, area, q, free, pa
 
     if (free === true) filter.is_free = true;
     if (institution) filter['institution.id'] = institution;
-    if (modality) filter.modality = modality;
+    // `modality` es texto libre con variantes de mayusculas ("ORDINARIO" / "Ordinario"): se compara entero sin distinguirlas.
+    if (modality) filter.modality = new RegExp(`^${escapeRegex(modality.trim())}$`, 'i');
     if (year) filter.date = { $gte: new Date(Date.UTC(year, 0, 1)), $lt: new Date(Date.UTC(year + 1, 0, 1)) };
 
     // Busqueda LITERAL en el titulo, sin distinguir mayusculas (no una expresion regular del usuario).
@@ -63,6 +64,35 @@ export const listExams = async ({ institution, modality, year, area, q, free, pa
     ]);
 
     return { items: items.map(serializeExamSummary), total };
+};
+
+/**
+ * Modalidades de los examenes publicados (de una institucion, si se indica), para el filtro. Las variantes que solo
+ * difieren en mayusculas se juntan y se muestra la mas usada; orden: las de mas examenes primero.
+ */
+export const listModalities = async ({ institution }) => {
+    const match = { verified: true, modality: { $type: 'string', $ne: '' } };
+    if (institution) match['institution.id'] = institution;
+
+    const rows = await ExamModel.aggregate([
+        { $match: match },
+        { $group: { _id: '$modality', count: { $sum: 1 } } },
+    ]).exec();
+
+    const byKey = new Map();
+    for (const { _id: raw, count } of rows) {
+        const name = raw.trim();
+        if (!name) continue;
+        const key = name.toLocaleLowerCase('es');
+        const row = byKey.get(key) ?? { name, count: 0, best: 0 };
+        if (count > row.best) Object.assign(row, { name, best: count });
+        row.count += count;
+        byKey.set(key, row);
+    }
+
+    return [...byKey.values()]
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'es'))
+        .map(({ name, count }) => ({ name, count }));
 };
 
 // --- Detalle ----------------------------------------------------------------

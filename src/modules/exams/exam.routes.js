@@ -7,7 +7,7 @@ import { examFile } from '../downloads/download.controller.js';
 import { ExamPdfParams, ExamPdfQuery } from '../downloads/download.schemas.js';
 import * as controller from './exam.controller.js';
 import {
-    ExamDetailQuery, ExamIdParams, ExamSlugParams, FavoriteBody, FavoritesQuery, ListExamsQuery,
+    ExamDetailQuery, ExamIdParams, ExamSlugParams, FavoriteBody, FavoritesQuery, ListExamsQuery, ModalitiesQuery,
 } from './exam.schemas.js';
 
 const router = Router();
@@ -15,7 +15,9 @@ const router = Router();
 // El catalogo es publico.
 router.get('/', validate(ListExamsQuery, 'query'), controller.list);
 
-// OJO con el orden: `/favoritos` tiene que registrarse antes que `/:slug`.
+// OJO con el orden: `/modalidades` y `/favoritos` tienen que registrarse antes que `/:slug`.
+router.get('/modalidades', validate(ModalitiesQuery, 'query'), controller.modalities);
+
 router.get('/favoritos', authenticate, authorize(), validate(FavoritesQuery, 'query'), controller.favorites);
 
 // El detalle es publico; con sesion marca si es favorito y, para docentes y

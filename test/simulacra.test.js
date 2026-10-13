@@ -93,6 +93,19 @@ describe('simulacros', () => {
             assert.ok(!live.body.data.some((item) => ['evento-proximo', 'evento-cerrado', 'cerrado-admin'].includes(item.slug)));
         });
 
+        it('incluye el logo de la institucion (URL absoluta) o null si no tiene', async () => {
+            const simulacra = db('simulacrums');
+            await simulacra.updateOne({ _id: 's-simulacro-general' }, { $set: { 'institution.image': '/images/inst/sm.png' } });
+            try {
+                const items = (await get('').expect(200)).body.data;
+                const bySlug = Object.fromEntries(items.map((item) => [item.slug, item]));
+                assert.match(bySlug['simulacro-general'].institution.image, /^https?:\/\/.+\/images\/inst\/sm\.png$/);
+                assert.equal(bySlug['simulacro-areas'].institution.image, null);
+            } finally {
+                await simulacra.updateOne({ _id: 's-simulacro-general' }, { $unset: { 'institution.image': '' } });
+            }
+        });
+
         it('filtra por institucion y titulo (literal), y valida', async () => {
             assert.equal((await get('?institution=inst-unmsm&limit=50').expect(200)).body.meta.total, 10);
             assert.equal((await get('?institution=otra').expect(200)).body.meta.total, 0);

@@ -64,6 +64,22 @@ describe('examenes', () => {
             assert.equal((await get('?year=1999').expect(200)).body.meta.total, 0);
         });
 
+        it('la modalidad se compara sin distinguir mayusculas', async () => {
+            const modality = await get('?modality=EXTRAORDINARIO').expect(200);
+            assert.deepEqual(modality.body.data.map((e) => e.slug), ['unmsm-2024-ii']);
+        });
+
+        it('GET /examenes/modalidades: las de los examenes publicados, de una institucion si se indica', async () => {
+            const all = await get('/modalidades').expect(200);
+            assert.deepEqual(all.body.data, [{ name: 'Ordinario', count: 2 }, { name: 'Extraordinario', count: 1 }]);
+
+            const sm = await get('/modalidades?institution=inst-unmsm').expect(200);
+            assert.deepEqual(sm.body.data.map((m) => m.name), ['Extraordinario', 'Ordinario']);
+
+            assert.deepEqual((await get('/modalidades?institution=otra').expect(200)).body.data, []);
+            await get('/modalidades?x=1').expect(422);
+        });
+
         it('filtra por area del catalogo aunque la materia del examen tenga otras mayusculas', async () => {
             const math = await get('?area=matematica').expect(200);
             assert.deepEqual(math.body.data.map((e) => e.slug), ['unmsm-2025-i']);

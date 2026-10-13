@@ -16,6 +16,9 @@ export const ListExamsQuery = Type.Object({
     ...paginationFields(),
 }, strict);
 
+// Modalidades del catalogo (para el filtro de la app); con `institution`, solo las de esa institucion.
+export const ModalitiesQuery = Type.Object({ institution: Type.Optional(Id) }, strict);
+
 export const ExamSlugParams = Type.Object({ slug: Type.String({ minLength: 1, maxLength: 200 }) }, strict);
 
 // `area` del detalle es el CODIGO del cuadernillo dentro del examen ("A", "B", "I"...).

@@ -8,6 +8,8 @@ export const list = asyncHandler(async (req, res) => {
     return ok(res, items, pageMeta({ page: req.query.page, limit: req.query.limit, total }));
 });
 
+export const modalities = asyncHandler(async (req, res) => ok(res, await exams.listModalities(req.query)));
+
 export const detail = asyncHandler(async (req, res) =>
     ok(res, await exams.getExam({ slug: req.params.slug, area: req.query.area, user: req.user })));
 

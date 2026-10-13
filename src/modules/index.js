@@ -7,6 +7,7 @@ import catalogRoutes from './catalog/catalog.routes.js';
 import downloadRoutes from './downloads/download.routes.js';
 import examRoutes from './exams/exam.routes.js';
 import questionRoutes from './questions/question.routes.js';
+import readingRoutes from './readings/reading.routes.js';
 import { areaRouter, listRouter } from './practices/practice.routes.js';
 import metaRoutes from './meta/meta.routes.js';
 import listRoutes from './lists/list.routes.js';
@@ -38,6 +39,7 @@ export function buildV1Router() {
     router.use(catalogRoutes);
     router.use('/preguntas', mathResponse, questionRoutes);
     router.use('/examenes', mathResponse, examRoutes);
+    router.use('/lecturas', mathResponse, readingRoutes);
     router.use('/descargas', downloadRoutes);
     router.use('/simulacros', mathResponse, simulacrumRoutes);
     router.use('/practicas-area', mathResponse, areaRouter);
