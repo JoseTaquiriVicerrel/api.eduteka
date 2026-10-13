@@ -286,6 +286,7 @@ Respuesta de corrección:
 | | Ruta | Descripción |
 |---|---|---|
 | 🌐 | `GET /examenes?institution=&modality=&year=&area=&q=&free=&page=` | Catálogo. `free=true` lista solo los de descarga gratuita (`is_free`); `free=false` no filtra |
+| 🌐 | `GET /examenes/modalidades?institution=` | Modalidades que existen (para el filtro). Con `institution` (id), solo las de esa institución |
 | 🌐 | `GET /examenes/:slug` | Ficha pública (áreas, archivos, `access`). **Las preguntas exigen sesión** (en la web se ven sin ella); con sesión, vista previa o completo con 💎 |
 | 🔑 | `POST /examenes/:id/favorito` | Toggle. Devuelve `{favorite, favorites}` |
 | 🔑 | `GET /examenes/favoritos` | Mis favoritos |
@@ -293,6 +294,7 @@ Respuesta de corrección:
 
 **Notas de implementación (fase 6, verificadas con pruebas):**
 - Solo se sirven exámenes `verified:true`. Catálogo (`GET /examenes`): filtros `institution` (id), `modality`, `year` (año de `date`), `area` (id o slug del catálogo; casa con `subjects` sin distinguir mayúsculas) y `q` (título, texto literal); paginado, más reciente primero. Cada examen expone `has_pdf` pero **nunca la ruta del archivo** (`files[].path`): el PDF irá por el endpoint autorizado de la fase 8.
+- **Modalidades** (`GET /examenes/modalidades?institution=`): público; `{data:["CEPRE-UNI","ORDINARIO",…]}` ordenadas, sin repetir ni vacías, solo de exámenes `verified:true`. La modalidad depende de la institución (UNI tiene CEPRE-UNI; otra no), así que el filtro de la app la pide al cambiar de institución. `GET /examenes?modality=` compara **sin distinguir mayúsculas**. La ruta va antes de `/:slug`.
 - **Detalle** (`GET /examenes/:slug?area=`): público (como la web). `area` es el **código del cuadernillo** (`A`, `B`, `I`…; sin él, el primero). Devuelve `areas[]` (cuadernillos con `solution`/`verified`), `files[]` (`{area,title}`), `access` y `items[]` en orden: `{kind:'reading', id, title, text}` o `{kind:'question', id, n, question, options[{key,text}], area, topic, type}`. Se omiten los marcadores de conflicto y los ids que ya no están en el banco. Sirve también los exámenes antiguos que llevan las preguntas dentro del cuadernillo.
 - **Sin respuestas:** las preguntas salen sin `rpta`/`resolution`. La corrección se pide pregunta a pregunta con `POST /preguntas/:id/responder` (las preguntas de examen son las del banco, así que solo se pueden responder las que están verificadas y tienen clave). **Docentes y administradores** reciben además `correct` y `explanation` (la web les muestra la respuesta marcada) y no tienen vista previa.
 - **Vista previa:** la especificación pide vista previa gratuita y examen completo con suscripción, pero la web hoy muestra el examen completo a todos (la suscripción solo protege los PDF). Se implementó como ajuste: `EXAM_PREVIEW_QUESTIONS` (por defecto **0 = completo**). Con N > 0, quien no tenga suscripción vigente ve las primeras N preguntas de cada cuadernillo (y las lecturas que las preceden), y `access` lo indica (`{preview, total_questions, served_questions}`). **Valor pendiente de decidir.**
@@ -302,6 +304,20 @@ Respuesta de corrección:
 - **Caché:** el detalle no se cachea en la API (cada petición lee el examen). El caché `exams:<slug>` de Redis del monolito incluye `rpta` y no se reutiliza. Si el tráfico lo pide, se puede añadir uno propio con clave `exams:<slug>:api:…` para que lo invalide el hook de `exam_schema`.
 - **Índice recomendado** (lo crea el dueño del esquema): `favoriteexams` `{ user_id: 1, state: 1 }`; sin él `GET /examenes/favoritos` recorre toda la colección.
 - `GET /examenes/:slug/pdf` (💎) queda para la fase 8.
+
+### 6.4b Lecturas (práctica con textos)
+| | Ruta | Descripción |
+|---|---|---|
+| 🌐 | `GET /lecturas?area=&q=&page=&limit=` | Lecturas con preguntas, la más reciente primero. `area` = slug de `/lecturas/areas`; `q` busca (literal, sin distinguir mayúsculas) en título y texto; `limit` ≤ 50 |
+| 🌐 | `GET /lecturas/areas` | Filtro: `[{slug, name, count}]`, las de más lecturas primero, con "Sin área" (`sin-area`) |
+| 🌐 | `GET /lecturas/:slug` | El texto y sus preguntas en orden, para responder en la pantalla |
+
+- **Qué se sirve** (mismo criterio que la web, `block.controllers.js`): bloques `type:'reading_section'`, `verified:true` y `origin ≠ 'Docente'`. Cualquier otro (de docente, sin verificar, separadores) o inexistente → `404`.
+- **Listado:** solo trae lecturas con **al menos una pregunta** (un texto sin preguntas no se puede practicar); lo mismo vale para los conteos de `/lecturas/areas`. El detalle **no** lo exige: un enlace viejo a una lectura sin preguntas sigue abriendo (`items` con solo la lectura). Cada elemento: `{id, slug, title, area, excerpt, questions_count, exam_title, institution}`; `excerpt` es texto plano de ≤ 180 caracteres con "…"; **nunca** sale el texto completo en el listado. `institution` (`{id,name,abrev,image}`, `image` absoluta) es la del bloque o, si no, la de su examen; la app ya no la dibuja en las lecturas.
+- **Áreas:** `block.area` es texto libre con variantes de mayúsculas (`RAZONAMIENTO VERBAL` / `Razonamiento Verbal`) y casi un tercio viene vacío. Se juntan por slug, el nombre es el del catálogo de áreas (si existe) y `area` en el listado acepta el slug (o el nombre).
+- **Detalle:** `{id, slug, title, area, exam_title, institution, items[]}` en la misma forma que un examen: `{kind:'reading', id, title, text}` y `{kind:'question', id, n, question, options[{key,text}], area, topic, type}` (`n` correlativo), **sin clave**. Solo preguntas `verified` y no de docente, en el orden del bloque. Sesión opcional: el docente y el administrador reciben además `correct` y `explanation`, como en la web.
+- **Corrección:** cada pregunta se responde con `POST /preguntas/:id/responder` (§6.2), igual que en los exámenes resueltos (la app corrige al tocar y muestra el porcentaje de la comunidad). Las respuestas cuentan para el progreso y el cupo diario como cualquier otra.
+- Con `?math=svg` también convierte las fórmulas del texto y las preguntas.
 
 ### 6.5 Simulacros
 | | Ruta | Descripción |
@@ -325,6 +341,7 @@ Respuesta de corrección:
 **Notas de implementación (fase 7, verificadas con pruebas):**
 - **Modelo:** `attempt_id` = id de la inscripción (`UserSimulacrum`), donde vive el intento vivo (respuestas, `start_exam`/`end_exam`, nota). `SimulacrumAttempt` es el archivo de intentos cerrados (índice único `(inscripción, attempt_number)`). Un reintento archiva el intento y sube `attempt_number`.
 - **Estados** (`status` en la ficha): `finished` = cerrado por el administrador o evento (`automatic`) cuya `end_date` pasó; `upcoming` = evento sin empezar; `live` = el resto (los simulacros bajo demanda siempre están abiertos). Filtro `?status=`. `enrollment.state` del postulante: `unregistered | registered | in_progress | finished` (mismo criterio que la ficha de la web).
+- **Logo de la institución:** la lista y la ficha de simulacros traen `institution:{id, name, abrev, image}` con `image` como **URL absoluta** (`null` si el simulacro no tiene institución o ésta no tiene logo; hoy UNSM 2026-II N1 y los BECA 18 no la tienen asignada en la base).
 - **`GET /simulacros`** (público; con sesión añade `enrolled`) y **`GET /simulacros/:slug`** (ficha sin preguntas: `areas[{key, description, careers, questions_count}]`, `ask_area`/`ask_career`, `scoring`, `enrollment`, `server_time`). No hay sockets: en un evento la app consulta la ficha (`status`, `start_date`, `server_time`) hasta que pase a `live`.
 - **`POST /simulacros/:slug/inscribirme`** (solo estudiantes): `{fullname, dni, area?, career?}`. Con una sola área se fija sola; con varias, `area` (y `career`, si el área tiene carreras) deben ser válidas. Gratis = verificada al instante. **De pago:** multipart con el comprobante en `screenshot` (o `capture`); PNG/JPG real (se valida por contenido), ≤ 5 MB; queda **pendiente de verificación manual** y avisa por correo al postulante y a `ADMIN_EMAIL`. **Diferencia con la web:** no hay verificación automática del comprobante con IA. Con `APP_PAYMENTS_ENABLED=false` las inscripciones de pago dan `403`. Para que el panel del monolito muestre el comprobante, `PAY_CAPTURE_DIR` debe apuntar a su carpeta `src/public/protected/pay_capture`.
 - **`POST /simulacros/:slug/iniciar`**: exige inscripción verificada. El cronometro lo fija el servidor **una sola vez** (`start_exam`, `end_exam = + duración`); volver a llamar devuelve el mismo cronometro y las respuestas guardadas (la app se recupera tras rotar la pantalla o ir a segundo plano). Devuelve `items[]` (lecturas y preguntas numeradas, **sin clave**), `server_time`, `answers`. En un evento fuera de `start_date..end_date` → `403`; cerrado por el administrador → `403` (salvo un reintento ya abierto); intento terminado → `409`; si el tiempo se acabó y nadie lo cerró, se califica con lo guardado y responde `409`.
