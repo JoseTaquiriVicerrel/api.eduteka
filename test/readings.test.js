@@ -28,8 +28,10 @@ describe('lecturas', () => {
                 exam: { title: 'Examen UNMSM 2025-I' },
             }),
             block('lectura-mat-2', { area: 'Matemática', title: 'Geometría del río', questions: ['q3'], created_at: at(2) }),
-            block('lectura-sin-area', { area: '', created_at: at(3) }),
-            block('lectura-null', { area: null, created_at: at(4) }),
+            block('lectura-sin-area', { area: '', questions: ['q2'], created_at: at(3) }),
+            block('lectura-null', { area: null, questions: ['q3'], created_at: at(4) }),
+            // Sin preguntas no se puede practicar: no se lista ni cuenta, pero su enlace abre.
+            block('sin-preguntas', { area: 'Matemática', created_at: at(0) }),
             block('de-docente', { area: 'Matemática', origin: 'Docente' }),
             block('sin-verificar', { area: 'Matemática', verified: false }),
             block('separador', { area: 'Matemática', type: 'divider_section' }),
@@ -99,6 +101,12 @@ describe('lecturas', () => {
         const [q1] = data.items.slice(1);
         assert.equal(q1.correct, 'B');
         assert.ok(q1.explanation.includes('Porque sí'));
+    });
+
+    it('una lectura sin preguntas no se lista pero su enlace sigue abriendo', async () => {
+        assert.ok(!(await get('').expect(200)).body.data.some((item) => item.slug === 'sin-preguntas'));
+        const { data } = (await get('/sin-preguntas').expect(200)).body;
+        assert.deepEqual(data.items.map((item) => item.kind), ['reading']);
     });
 
     it('no sirve lecturas de docente, sin verificar, separadores ni inexistentes', async () => {

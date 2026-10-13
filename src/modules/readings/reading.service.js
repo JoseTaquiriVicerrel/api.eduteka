@@ -16,6 +16,10 @@ import { serializeExamItems } from '#Serializers/exam.serializer.js';
 // Un texto importado por un docente es suyo y no sale aqui (OFFICIAL_BANK_FILTER del monolito).
 const BASE_FILTER = Object.freeze({ type: 'reading_section', verified: true, origin: { $ne: 'Docente' } });
 
+// El listado (y sus conteos por area) solo ofrece lecturas con preguntas: un texto sin
+// preguntas no se puede practicar. El detalle no lo exige (un enlace viejo sigue abriendo).
+const LISTED_FILTER = Object.freeze({ ...BASE_FILTER, 'questions.0': { $exists: true } });
+
 // Las lecturas sin area son casi un tercio del banco (`area` null o ""): tienen su propia opcion.
 export const NO_AREA_SLUG = 'sin-area';
 const NO_AREA_NAME = 'Sin área';
@@ -46,7 +50,7 @@ const institutionOf = (block) => {
  */
 const groupAreas = async () => {
     const groups = await BlockModel.aggregate([
-        { $match: BASE_FILTER },
+        { $match: LISTED_FILTER },
         { $group: { _id: '$area', count: { $sum: 1 } } },
     ]).exec();
 
@@ -83,7 +87,7 @@ export const listReadingAreas = async () =>
 
 /** Listado paginado; `area` es el slug de una fila del filtro y `q` busca literal en el titulo y el texto. */
 export const listReadings = async ({ area, q, page, limit }) => {
-    const filter = { ...BASE_FILTER };
+    const filter = { ...LISTED_FILTER };
 
     if (area) {
         const row = (await groupAreas()).find((item) => item.slug === convertSlug(area));
