@@ -22,6 +22,9 @@ router.get('/favoritos', authenticate, authorize(), validate(FavoritesQuery, 'qu
 
 // El detalle es publico; con sesion marca si es favorito y, para docentes y
 // suscriptores, no aplica la vista previa.
+// Banners, promo de suscripcion y relacionados del detalle (web). Publico; con sesion afina banner y promo.
+router.get('/:id/extras', authenticate, validate(ExamIdParams, 'params'), controller.extras);
+
 router.get('/:slug', authenticate, validate(ExamSlugParams, 'params'), validate(ExamDetailQuery, 'query'), controller.detail);
 
 // PDF del examen (con suscripcion vigente). Va por el controlador de descargas, que comprueba

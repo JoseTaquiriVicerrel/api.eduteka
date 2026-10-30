@@ -2,6 +2,7 @@ import { asyncHandler } from '#Libs/async_handler.js';
 import { ok } from '#Libs/envelope.js';
 import { pageMeta } from '#Libs/paginate.js';
 import * as exams from './exam.service.js';
+import { getExamExtras } from './exam.extras.js';
 
 export const list = asyncHandler(async (req, res) => {
     const { items, total } = await exams.listExams(req.query);
@@ -20,3 +21,5 @@ export const favorites = asyncHandler(async (req, res) => {
     const { items, total } = await exams.listFavorites({ user: req.user, page: req.query.page, limit: req.query.limit });
     return ok(res, items, pageMeta({ page: req.query.page, limit: req.query.limit, total }));
 });
+
+export const extras = asyncHandler(async (req, res) => ok(res, await getExamExtras({ examId: req.params.id, user: req.user })));
