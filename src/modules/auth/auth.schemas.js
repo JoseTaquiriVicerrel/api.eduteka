@@ -45,3 +45,9 @@ export const RecoverBody = Type.Object({ email: Email }, strict);
 export const VerifyRecoveryCodeBody = Type.Object({ email: Email, code: Code }, strict);
 
 export const ResetPasswordBody = Type.Object({ reset_token: Token, password: NewPassword }, strict);
+
+// Cookie `session` del monolito (un JWT). Solo [A-Za-z0-9._-]: se pega en una cabecera Cookie
+// hacia el monolito, y un `;`, `,`, espacio o salto de linea permitiria inyectar otra cookie o cabecera.
+export const WebExchangeBody = Type.Object({
+    session: Type.String({ minLength: 1, maxLength: 2048, pattern: '^[A-Za-z0-9._-]+$' }),
+}, strict);

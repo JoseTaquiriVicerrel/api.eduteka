@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { settings } from '#Config/settings.js';
+import { ApiError } from '#Libs/api_error.js';
 import authenticate from '#Middlewares/authenticate.js';
 import authorize from '#Middlewares/authorize.js';
 import { emailKey, rateLimit } from '#Middlewares/rate_limit.js';
@@ -6,7 +8,7 @@ import validate from '#Middlewares/validate.js';
 import * as controller from './auth.controller.js';
 import {
     LoginBody, LogoutBody, RecoverBody, RefreshBody, RegisterBody, ResendCodeBody,
-    ResetPasswordBody, VerifyCodeBody, VerifyRecoveryCodeBody,
+    ResetPasswordBody, VerifyCodeBody, VerifyRecoveryCodeBody, WebExchangeBody,
 } from './auth.schemas.js';
 
 const router = Router();
@@ -32,5 +34,13 @@ router.post('/recover', perIp, normalizeEmail, perEmail, validate(RecoverBody), 
 router.post('/verify-recovery-code', perIp, normalizeEmail, validate(VerifyRecoveryCodeBody), controller.verifyRecoveryCode);
 router.post('/reset-password', perIp, validate(ResetPasswordBody), controller.resetPassword);
 router.get('/me', authenticate, authorize(), controller.me);
+
+// Solo el servidor de Next (req.client === 'web', ver middlewares/client.js) y solo con el
+// puente configurado. Para cualquier otro es una ruta inexistente: va ANTES del limite y de
+// validate, asi la app no recibe errores de validacion de una ruta que no le corresponde.
+const webBridgeOnly = (req, res, next) =>
+    (req.client === 'web' && settings.webClient.monolithUrl ? next() : next(ApiError.notFound('La ruta solicitada no existe.')));
+
+router.post('/web-exchange', webBridgeOnly, perIp, validate(WebExchangeBody), controller.webExchange);
 
 export default router;

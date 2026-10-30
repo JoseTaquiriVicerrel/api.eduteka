@@ -147,8 +147,39 @@ const jwtSecret = required('JWT_SECRET', { minLength: 32 });
 if (isProduction && env.JWT_PRIVATE_KEY && env.JWT_PRIVATE_KEY.trim() === jwtSecret) {
     problems.push('JWT_SECRET debe ser distinto de JWT_PRIVATE_KEY');
 }
+
+// Secreto que comparte solo el servidor de Next (eduteka/web) con la API para identificarse
+// como cliente 'web'. Opcional: sin el, toda peticion es de la app.
+const webClientSecret = str('WEB_CLIENT_SECRET', null);
+if (webClientSecret) {
+    if (webClientSecret.length < 32) problems.push('WEB_CLIENT_SECRET debe tener al menos 32 caracteres');
+    if (isProduction && webClientSecret === jwtSecret) problems.push('WEB_CLIENT_SECRET debe ser distinto de JWT_SECRET');
+    if (isProduction && env.JWT_PRIVATE_KEY && env.JWT_PRIVATE_KEY.trim() === webClientSecret) {
+        problems.push('WEB_CLIENT_SECRET debe ser distinto de JWT_PRIVATE_KEY');
+    }
+}
+
+// URL interna del monolito (red privada o 127.0.0.1, nunca la publica) para el puente de sesion
+// de la web (POST /auth/web-exchange). Sin ella el puente queda apagado.
+const monolithUrl = (() => {
+    const value = str('MONOLITH_URL', null);
+    if (!value) return null;
+    try {
+        if (!['http:', 'https:'].includes(new URL(value).protocol)) throw new Error('protocolo');
+    } catch {
+        problems.push('MONOLITH_URL debe ser una URL http(s) absoluta');
+        return null;
+    }
+    return value.replace(/\/+$/, '');
+})();
+
 if (isProduction) {
     const warnings = [];
+    if (!webClientSecret) {
+        warnings.push('WEB_CLIENT_SECRET sin definir: el modo web queda apagado (toda peticion se trata como la app)');
+    } else if (!monolithUrl) {
+        warnings.push('MONOLITH_URL sin definir: el puente de sesion de la web (POST /auth/web-exchange) queda apagado');
+    }
     if (parseTrustProxy() === false) {
         warnings.push('TRUST_PROXY=false: tras Nginx/Cloudflare, req.ip sera la del proxy y el rate limit por IP se vuelve global (usa TRUST_PROXY=1)');
     }
@@ -187,6 +218,15 @@ const settings = Object.freeze({
         // intentan refrescar, la primera rota y las demas parecerian un robo; sin
         // gracia se cerraria la sesion del usuario. 0 la desactiva.
         refreshGraceSeconds: int('REFRESH_GRACE_SECONDS', 30, { min: 0, max: 300 }),
+    }),
+
+    // Cliente web (servidor de Next): ver src/middlewares/client.js. null = modo web apagado.
+    webClient: Object.freeze({
+        secret: webClientSecret,
+        // Puente de sesion: la cookie del monolito se valida en el monolito. null = apagado.
+        monolithUrl,
+        // Vida del access token que emite el puente (sin refresh: la web vuelve a pedirlo).
+        bridgeTtlSeconds: int('WEB_BRIDGE_TTL_SECONDS', 900, { min: 60, max: 1800 }),
     }),
 
     auth: Object.freeze({

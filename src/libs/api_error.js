@@ -108,6 +108,10 @@ export class ApiError extends Error {
         return new ApiError(503, 'EMAIL_DELIVERY_FAILED', message);
     }
 
+    static serviceUnavailable(code = 'SERVICE_UNAVAILABLE', message = 'El servicio no está disponible en este momento. Intenta nuevamente.') {
+        return new ApiError(503, code, message);
+    }
+
     static maintenance(message = 'Estamos en mantenimiento. Vuelve a intentarlo más tarde.') {
         return new ApiError(503, 'MAINTENANCE', message);
     }

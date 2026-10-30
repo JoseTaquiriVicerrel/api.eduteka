@@ -10,7 +10,7 @@ import { sendMail } from '#Libs/mailer.js';
 import { assertPasswordBytes } from '#Libs/password.js';
 import {
     generateCode, generateRefreshToken, hashCode, newId, safeEqual, sha256,
-    signAccessToken, signResetToken, verifyResetToken,
+    signAccessToken, signBridgeAccessToken, signResetToken, verifyResetToken,
 } from '#Libs/tokens.js';
 import { AUTH_USER_FIELDS } from '#Middlewares/authenticate.js';
 import { serializeUser } from '#Serializers/user.serializer.js';
@@ -406,3 +406,51 @@ export const resetPassword = async ({ reset_token: resetToken, password }) => {
 };
 
 export const me = (user) => serializeUser(user);
+
+// --- Puente de sesion de la web -----------------------------------------------
+// Mientras el login siga en el monolito, la web cambia su cookie `session` por un access token
+// de la API. La cookie se valida EN el monolito (GET /api/web/me), no aqui: la API no conoce
+// JWT_PRIVATE_KEY ni el monolito JWT_SECRET. Se retira cuando el login pase a la API.
+
+const MONOLITH_TIMEOUT_MS = 3000;
+
+/** `id` del usuario de la cookie segun el monolito, o null si no es una sesion valida. */
+const monolithSessionUser = async (session, ctx) => {
+    let response;
+    try {
+        response = await fetch(`${settings.webClient.monolithUrl}/api/web/me`, {
+            headers: {
+                // `session` ya viene validada contra [A-Za-z0-9._-] (WebExchangeBody): no puede
+                // cerrar la cookie ni abrir otra cabecera.
+                Cookie: `session=${session}`,
+                Accept: 'application/json',
+                'X-Requested-With': 'fetch',
+                ...(ctx.ip ? { 'X-Forwarded-For': ctx.ip } : {}),
+            },
+            redirect: 'manual',
+            signal: AbortSignal.timeout(MONOLITH_TIMEOUT_MS),
+        });
+    } catch {
+        throw ApiError.serviceUnavailable('BRIDGE_UNAVAILABLE');
+    }
+    if (!response.ok) throw ApiError.serviceUnavailable('BRIDGE_UNAVAILABLE');
+
+    // El Set-Cookie de renovacion se ignora: el navegador renueva la cookie en sus propias visitas.
+    const body = await response.json().catch(() => null);
+    return typeof body?.data?.id === 'string' ? body.data.id : null;
+};
+
+/** POST /auth/web-exchange: access token (sin refresh) del usuario de la cookie del monolito. */
+export const webExchange = async ({ session }, ctx) => {
+    const uid = await monolithSessionUser(session, ctx);
+    if (!uid) throw ApiError.unauthenticated('La sesión de la web no es válida.');
+
+    const user = await UserModel.findById(uid, { _id: 1, rol: 1, state: 1 }).lean().exec();
+    if (!user || user.state === false) throw ApiError.unauthenticated('La sesión de la web no es válida.');
+
+    return {
+        access_token: await signBridgeAccessToken({ uid: user._id, rol: user.rol }),
+        token_type: 'Bearer',
+        expires_in: settings.webClient.bridgeTtlSeconds,
+    };
+};

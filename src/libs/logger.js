@@ -5,12 +5,15 @@ import { settings } from '#Config/settings.js';
 // ya lleva el `request_id`. Nada de lo que aparezca aqui debe ser un secreto:
 // las cabeceras sensibles se ocultan y los cuerpos de las peticiones nunca se
 // registran (contienen contraseñas y codigos).
+export const redact = Object.freeze({
+    // pino-http puede serializar las cabeceras antes de que identifyClient borre el secreto.
+    paths: ['req.headers.authorization', 'req.headers.cookie', 'req.headers["x-edk-client-secret"]', 'res.headers["set-cookie"]'],
+    censor: '[oculto]',
+});
+
 export const logger = pino({
     level: settings.logLevel,
-    redact: {
-        paths: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
-        censor: '[oculto]',
-    },
+    redact,
     ...(settings.prettyLogs ? { transport: { target: 'pino-pretty' } } : {}),
 });
 

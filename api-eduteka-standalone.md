@@ -71,6 +71,7 @@ Patrón por módulo: `routes → controller (delgado) → service (lógica) → 
 | `message` | Español (fallback visible). `code` en inglés, estable, parte del contrato |
 | Caché | `Cache-Control: no-store` por defecto; los catálogos públicos pueden usar `ETag` |
 | Versión de cliente | `X-App-Version` (Android) → si < `APP_MIN_VERSION`, `426 APP_UPDATE_REQUIRED` |
+| Cliente | `X-Edk-Client: web` + `X-Edk-Client-Secret: <WEB_CLIENT_SECRET>`, solo de servidor a servidor (Next → API; no están en CORS). Con secreto válido `req.client = 'web'`; cualquier otro caso (sin cabeceras, secreto inválido o sin configurar) es `'app'`, sin error |
 | Trazabilidad | `X-Request-Id` entrante o generado, devuelto en header y en errores |
 
 ### 3.1 Envelope
@@ -102,6 +103,7 @@ Patrón por módulo: `routes → controller (delgado) → service (lógica) → 
 | 500 | `INTERNAL_ERROR` | — |
 | 503 | `MAINTENANCE` | Modo mantenimiento |
 | 503 | `EMAIL_DELIVERY_FAILED` | No se pudo enviar el correo del registro; la cuenta queda creada y se puede reenviar el código |
+| 503 | `BRIDGE_UNAVAILABLE` | `POST /auth/web-exchange`: el monolito no respondió, tardó más de 3 s o respondió distinto de 2xx |
 
 ### 3.3 Paginación
 `?page=1&limit=20` (máx. 50). `meta` = `{page, limit, total, has_more}`. Ordenamiento estable por `created_at desc, _id`.
@@ -152,6 +154,7 @@ Fallback en memoria si Redis cae. Cada respuesta lleva `RateLimit-Limit/Remainin
 | `POST /auth/verify-recovery-code` | — | `email, code` → `reset_token` |
 | `POST /auth/reset-password` | — | `reset_token, password` (revoca todos los refresh del usuario) |
 | `GET /auth/me` | Bearer | Usuario + `suscription` + `capabilities` |
+| `POST /auth/web-exchange` | Cliente web (`X-Edk-Client` + secreto) | `session` (cookie del monolito, `[A-Za-z0-9._-]`, ≤ 2048) → `{access_token, token_type, expires_in}`, **sin refresh** ni usuario. La API valida la cookie llamando a `GET {MONOLITH_URL}/api/web/me` (nunca con `JWT_PRIVATE_KEY`). Token `typ:'access'`, `via:'web-bridge'`, TTL `WEB_BRIDGE_TTL_SECONDS`. Para la app, o sin `MONOLITH_URL`: `404`. Sesión inválida o cuenta desactivada: `401`. Monolito caído o lento: `503 BRIDGE_UNAVAILABLE`. Límite `auth` por IP. Se retira cuando el login pase a la API |
 
 Respuesta de tokens:
 ```json
@@ -492,6 +495,9 @@ JWT_RESET_SECRET=
 ACCESS_TTL_SECONDS=1800
 REFRESH_TTL_DAYS=60
 API_CORS_ORIGINS=https://eduteka.pe,https://www.eduteka.pe
+WEB_CLIENT_SECRET=         # ≥ 32 caracteres, distinto de JWT_SECRET y JWT_PRIVATE_KEY; vacío = modo web apagado
+MONOLITH_URL=              # URL INTERNA del monolito (p. ej. http://127.0.0.1:3000); vacío = puente de sesión apagado
+WEB_BRIDGE_TTL_SECONDS=900 # vida del access token del puente (60-1800)
 APP_MIN_VERSION=1.0.0
 APP_LATEST_VERSION=1.0.0
 APP_PAYMENTS_ENABLED=true
@@ -550,6 +556,7 @@ Durante la convivencia, **una sola fuente de verdad de reglas de negocio**: move
 
 - **La API no crea índices** en colecciones compartidas: `mongoose.set('autoIndex', false)` y `autoCreate: false` en `src/server.js`. El dueño de los índices es el monolito (o un script de migración revisado). `refreshtokens` es propia de la API y pide `autoIndex: true` en su schema (hash único, TTL por `expires_at`, usuario, familia). Nunca llamar a `syncIndexes()`.
 - **Estado medido en producción (2026-09-30):** los índices coinciden con los schemas salvo `users.email` único (no existía por duplicados; tras la fusión hay que crearlo con `db.users.createIndex({ email: 1 }, { unique: true, name: 'email_1' })`, idéntico al schema para no chocar con el `autoIndex` del monolito) y el índice de texto `topic_text_question_text` en `questions`, que ningún schema declara. Sin `email_1`, cada login es un escaneo completo de `users`, y el registro depende del control de la aplicación.
+- **Puente de sesión de la web:** `POST /auth/web-exchange` llama a `GET {MONOLITH_URL}/api/web/me` del monolito con la cookie `session` (timeout 3 s) y solo usa `data.id`; el `Set-Cookie` de renovación se ignora. `MONOLITH_URL` debe ser interna (red privada o `127.0.0.1`), nunca la pública. Requiere `TRUST_PROXY` con Nginx y la dirección de Next: si no, todos los visitantes comparten el límite `auth` de la IP de Next.
 - **El cron de suscripciones** (`src/libs/cron.js`) corre solo en el monolito. Si la API lo arrancara, cada usuario recibiría los avisos dos veces.
 - **Redis:** claves de la API con prefijo `api:`. El caché `exams:<slug>` del monolito contiene preguntas **con clave**: la API no debe servirlo sin pasar por un serializer.
 - **Schemas copiados:** `src/schemas` y `src/models` son copias del monolito. Cualquier cambio de campos o índices debe aplicarse en ambos lados; un campo que falte en una copia se descarta en silencio al guardar (`strict`). Los campos que solo usa la API (`token_verify_expires`, etc.) deben existir también en la copia del monolito si este llega a guardar esos documentos.

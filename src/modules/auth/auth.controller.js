@@ -30,3 +30,6 @@ export const verifyRecoveryCode = asyncHandler(async (req, res) => ok(res, await
 export const resetPassword = asyncHandler(async (req, res) => ok(res, await auth.resetPassword(req.body)));
 
 export const me = (req, res) => ok(res, auth.me(req.user));
+
+export const webExchange = asyncHandler(async (req, res) =>
+    ok(res, await auth.webExchange(req.body, auth.requestContext(req))));

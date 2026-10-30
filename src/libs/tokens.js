@@ -4,7 +4,8 @@ import { settings } from '#Config/settings.js';
 
 // Tokens y codigos de la API.
 //
-//  - access:  JWT HS256 { uid, rol, typ:'access' }, corto y sin estado.
+//  - access:  JWT HS256 { uid, rol, typ:'access' }, corto y sin estado. El del puente de
+//             la web lleva ademas `via:'web-bridge'` y su propio TTL.
 //  - refresh: valor aleatorio de 256 bits. En BD solo se guarda su SHA-256.
 //  - reset:   JWT { uid, typ:'reset', jti } de un solo uso.
 //
@@ -41,6 +42,11 @@ export const signAccessToken = ({ uid, rol }) =>
     sign({ uid, rol: rol ?? 'User', typ: 'access' }, accessKey, settings.jwt.accessTtlSeconds);
 
 export const verifyAccessToken = (token) => verify(token, accessKey, 'access');
+
+// Access token del puente de sesion de la web (POST /auth/web-exchange). Mismo `typ` para que
+// `authenticate` lo acepte sin cambios; `via` solo sirve para auditar de donde salio.
+export const signBridgeAccessToken = ({ uid, rol }) =>
+    sign({ uid, rol: rol ?? 'User', typ: 'access', via: 'web-bridge' }, accessKey, settings.webClient.bridgeTtlSeconds);
 
 export const signResetToken = (uid, jti) =>
     sign({ uid, typ: 'reset' }, resetKey, settings.jwt.resetTtlSeconds, jti);

@@ -1,5 +1,6 @@
 import express from 'express';
 import appVersion from '#Middlewares/app_version.js';
+import identifyClient from '#Middlewares/client.js';
 import maintenance from '#Middlewares/maintenance.js';
 import { rateLimit } from '#Middlewares/rate_limit.js';
 import authRoutes from './auth/auth.routes.js';
@@ -26,6 +27,8 @@ import progressRoutes from './progress/progress.routes.js';
 export function buildV1Router() {
     const router = express.Router();
 
+    // Primero: el limite por cliente (y lo que venga despues) lee req.client.
+    router.use(identifyClient);
     // Los SVG de formulas quedan fuera del limite: una pantalla con muchas preguntas pide
     // decenas de imagenes de golpe y agotaria los 120/min de la IP (y de toda una red NAT).
     // Son estaticos e inmutables y el nombre es un hash de 128 bits (no se pueden enumerar).
