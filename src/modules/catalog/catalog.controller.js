@@ -8,3 +8,5 @@ export const areas = asyncHandler(async (req, res) => ok(res, await catalog.list
     institution: req.query.institution ?? null,
     withResolution: req.query.with_resolution === true,
 })));
+
+export const institution = asyncHandler(async (req, res) => ok(res, await catalog.getInstitutionBySlug(req.params.slug)));

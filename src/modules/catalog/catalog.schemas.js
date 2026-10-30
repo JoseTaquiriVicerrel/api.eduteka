@@ -6,3 +6,5 @@ export const AreasQuery = Type.Object({
     institution: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
     with_resolution: Type.Optional(Type.Boolean()),
 }, strict);
+
+export const InstitutionSlugParams = Type.Object({ slug: Type.String({ minLength: 1, maxLength: 64 }) }, strict);

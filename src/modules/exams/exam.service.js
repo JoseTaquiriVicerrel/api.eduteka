@@ -138,7 +138,7 @@ const applyPreview = (items, limit) => {
     return kept;
 };
 
-export const getExam = async ({ slug, area, user }) => {
+export const getExam = async ({ slug, area, user, client }) => {
     const exam = await findVerified({ slug }, { ...EXAM_SUMMARY_PROJECTION, areas: 1, general_items: 1, unique: 1 });
 
     const codes = Object.keys(exam.areas && typeof exam.areas === 'object' ? exam.areas : {});
@@ -154,10 +154,14 @@ export const getExam = async ({ slug, area, user }) => {
     // Docentes y administradores ven las respuestas (material de trabajo) y no tienen vista previa.
     const canTeach = user ? canSeeSolutions(user) : false;
     const unrestricted = canTeach || (user ? isPremium(user) : false);
-    // En la API las preguntas exigen sesion (en la web se ven sin ella): el anonimo recibe solo
-    // la ficha, con `access.login_required` para que la app pida iniciar sesion.
+    // En la API las preguntas exigen sesion: el anonimo de la app recibe solo la ficha, con
+    // `access.login_required` para que la app pida iniciar sesion. El servidor web (req.client
+    // === 'web', identificado con su secreto) las sirve tambien al visitante anonimo, con la
+    // vista previa de quien no tiene plan: son las paginas que indexan los buscadores. Sin
+    // sesion `canTeach` es false, asi que nunca salen `correct` ni `explanation`.
     const anonymous = !user;
-    const served = anonymous ? [] : (unrestricted ? all : applyPreview(all, settings.limits.examPreviewQuestions));
+    const hideItems = anonymous && client !== 'web';
+    const served = hideItems ? [] : (unrestricted ? all : applyPreview(all, settings.limits.examPreviewQuestions));
     const servedQuestions = served.filter((item) => item.itype !== 'reading_section' && item.itype !== 'block').length;
 
     const downloadRequires = examDownloadRequirement(user ?? null, exam);

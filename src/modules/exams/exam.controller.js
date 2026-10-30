@@ -11,7 +11,7 @@ export const list = asyncHandler(async (req, res) => {
 export const modalities = asyncHandler(async (req, res) => ok(res, await exams.listModalities(req.query)));
 
 export const detail = asyncHandler(async (req, res) =>
-    ok(res, await exams.getExam({ slug: req.params.slug, area: req.query.area, user: req.user })));
+    ok(res, await exams.getExam({ slug: req.params.slug, area: req.query.area, user: req.user, client: req.client })));
 
 export const favorite = asyncHandler(async (req, res) =>
     ok(res, await exams.setFavorite({ user: req.user, examId: req.params.id, favorite: req.body.favorite })));

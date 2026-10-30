@@ -24,7 +24,15 @@ describe('catalogo: instituciones y areas', () => {
         assert.equal(unmsm.exams_count, 12);
         assert.equal(unmsm.departament, 'Lima');
         // Sin campos internos.
-        assert.deepEqual(Object.keys(unmsm).sort(), ['abrev', 'departament', 'exams_count', 'id', 'image', 'name', 'province']);
+        assert.deepEqual(Object.keys(unmsm).sort(), ['abrev', 'departament', 'exams_count', 'id', 'image', 'name', 'province', 'slug']);
+    });
+
+    it('GET /instituciones/:slug: resuelve tambien las desactivadas; San Marcos es san-marcos', async () => {
+        const hidden = (await get('/instituciones/oc').expect(200)).body.data;
+        assert.equal(hidden.id, 'inst-oculta');
+        assert.equal(hidden.slug, 'oc');
+
+        await get('/instituciones/nadie').expect(404);
     });
 
     it('los catalogos son cacheables y responden 304 si no cambiaron (ETag)', async () => {

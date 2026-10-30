@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import validate from '#Middlewares/validate.js';
-import { AreasQuery } from './catalog.schemas.js';
+import { AreasQuery, InstitutionSlugParams } from './catalog.schemas.js';
 import * as controller from './catalog.controller.js';
 
 const router = Router();
@@ -13,6 +13,7 @@ const publicCache = (req, res, next) => {
 };
 
 router.get('/instituciones', publicCache, controller.institutions);
+router.get('/instituciones/:slug', publicCache, validate(InstitutionSlugParams, 'params'), controller.institution);
 router.get('/areas', publicCache, validate(AreasQuery, 'query'), controller.areas);
 
 export default router;

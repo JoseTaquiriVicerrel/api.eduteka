@@ -1,26 +1,57 @@
 import InstitutionModel from '#Models/institution_model.js';
 import QuestionModel from '#Models/question_model.js';
+import { ApiError } from '#Libs/api_error.js';
+import { escapeRegex } from '#Libs/text_utils.js';
 import { absoluteUrl } from '#Libs/urls.js';
 import { practicableFilter } from '#Modules/questions/question.filters.js';
+
+// Slug de la institucion en las URLs de la web (/examenes-<slug>, /simulacros-<slug>):
+// San Marcos usa su nombre y el resto la abreviatura en minusculas.
+export const institutionSlug = (abrev) => {
+    if (!abrev) return null;
+    return abrev === 'UNMSM' ? 'san-marcos' : String(abrev).toLowerCase();
+};
+
+const serializeInstitution = (doc) => ({
+    id: doc._id,
+    name: doc.name ?? null,
+    abrev: doc.abrev ?? null,
+    slug: institutionSlug(doc.abrev),
+    image: doc.image ? absoluteUrl(doc.image) : null,
+    departament: doc.departament ?? null,
+    province: doc.province ?? null,
+    exams_count: doc.exams_count ?? 0,
+});
+
+const INSTITUTION_FIELDS = { name: 1, abrev: 1, image: 1, departament: 1, province: 1, exams_count: 1 };
 
 // Instituciones con examenes. `state` solo se descarta si es explicitamente false:
 // hay documentos antiguos sin el campo.
 export const listInstitutions = async () => {
     const docs = await InstitutionModel
-        .find({ state: { $ne: false } }, { name: 1, abrev: 1, image: 1, departament: 1, province: 1, exams_count: 1 })
+        .find({ state: { $ne: false } }, INSTITUTION_FIELDS)
         .sort({ name: 1, _id: 1 })
         .lean()
         .exec();
 
-    return docs.map((doc) => ({
-        id: doc._id,
-        name: doc.name ?? null,
-        abrev: doc.abrev ?? null,
-        image: doc.image ? absoluteUrl(doc.image) : null,
-        departament: doc.departament ?? null,
-        province: doc.province ?? null,
-        exams_count: doc.exams_count ?? 0,
-    }));
+    return docs.map(serializeInstitution);
+};
+
+// Una institucion por su slug de URL, activa o no: las paginas /examenes-<slug> de las
+// instituciones fuera del catalogo publico (San Marcos entre ellas) siguen existiendo.
+export const getInstitutionBySlug = async (slug) => {
+    const wanted = String(slug ?? '').trim().toLowerCase();
+    const abrev = wanted === 'san-marcos' ? 'UNMSM' : wanted;
+    if (!abrev) throw ApiError.notFound('No se encontró la universidad.');
+
+    const doc = await InstitutionModel
+        .findOne({ abrev: new RegExp(`^${escapeRegex(abrev)}$`, 'i') }, INSTITUTION_FIELDS)
+        .lean()
+        .exec();
+    // `/unmsm` no es la URL de San Marcos: solo vale el slug canonico.
+    if (!doc || institutionSlug(doc.abrev) !== wanted) throw ApiError.notFound('No se encontró la universidad.');
+
+    return serializeInstitution(doc);
 };
 
 // Areas con preguntas practicables, ordenadas por volumen. Cuenta solo las que de
