@@ -292,6 +292,12 @@ const settings = Object.freeze({
         maxConnectionsPerUser: int('REALTIME_MAX_CONNECTIONS_PER_USER', 5, { min: 1, max: 20 }),
     }),
 
+    // Precalentamiento de formulas: el monolito avisa (canal edk:content:events) cuando un examen o
+    // simulacro se verifica o cambia y la API convierte sus formulas antes de que lo abra un estudiante.
+    mathPrewarm: Object.freeze({
+        enabled: bool('MATH_PREWARM_ENABLED', true),
+    }),
+
     rateLimit: Object.freeze({
         global: int('RATE_LIMIT_GLOBAL', 120, { min: 1 }),
         auth: int('RATE_LIMIT_AUTH', 10, { min: 1 }),

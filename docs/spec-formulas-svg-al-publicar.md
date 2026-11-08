@@ -33,6 +33,8 @@ Reutiliza el bus que ya existe entre el monolito y la API (`edk:simulacrum:event
 2. **API**: un suscriptor (como `simulacrum.events.js`) recibe la señal y encola el precalentamiento de ese documento con `collectFormulas({ slug | exam })` + `warmFormulas`. Cola de 1 trabajo a la vez, deduplicada por `kind:id`, con la misma cola de concurrencia de MathJax (el trabajo corre en el worker, no en el event loop).
 3. Al terminar, `logger.info` con convertidas / nuevas / fallidas; las fallidas se registran con el id de la pregunta.
 
+Notas de la revisión: (a) la señal debe publicarse **después** de guardar en Mongo, o la API leería el documento anterior; (b) en un simulacro la API solo precalienta si `verified && state` (publicado), así que al verificar uno aún en borrador no hace nada y hay que volver a emitir al publicarlo; (c) con varias instancias de la API cada una recibe la señal y convierte (es idempotente y el SVG va a disco compartido, solo se duplica la lectura).
+
 Fallback si no hay Redis (dev) o la señal se pierde: el presupuesto de 5 s sigue funcionando y la tarea programada de §3.3 lo cubre.
 
 ### 3.3 Red de seguridad
@@ -56,8 +58,9 @@ Que el monolito ejecute `node ../api_eduteka/scripts/warm_math_cache.js` con `ch
 - [x] `extractFormulas` reconoce entornos sin delimitadores (`api_eduteka/src/libs/math_svg.js`) + 5 pruebas; 103/103 pruebas de fórmulas pasan.
 - [x] `warm_math_cache.js --exam=<id>`.
 - [x] Backfill ejecutado en este equipo: +506 fórmulas nuevas convertidas (15 315 SVG, 80,7 MB en total). **Pendiente repetirlo en producción** (`npm run math:warm`) tras desplegar el cambio.
-- [ ] Señal `content` en el monolito + suscriptor en la API (§3.2).
-- [ ] Cron de respaldo (§3.3).
+- [x] **API** (§3.2): `src/libs/content_events.js` (canal `edk:content:events`, valida el contrato, Redis aparte en modo suscriptor, bus local sin Redis) y `src/libs/math_prewarm.js` (cola de 1 trabajo, deduplicada por `kind:id`; omite lo no verificado/publicado; registra convertidas/nuevas/fallidas con el id de origen). Arranca en `server.js` con `MATH_PREWARM_ENABLED` (por defecto `true`). `collectFormulas` acepta `simulacrum: <id>`. Pruebas en `test/math_prewarm.test.js` (incluye simulacro de prospecto y tablas sin delimitadores).
+- [ ] **Monolito**: publicar la señal `content` en `edk:content:events` (§3.2 punto 1). Sin esto la API no recibe nada.
+- [ ] Cron de respaldo en el servidor (§3.3): `0 * * * * cd /ruta/api_eduteka && npm run math:warm`.
 
 ## 6. Fórmulas que siguen fallando (datos del banco, no del convertidor)
 

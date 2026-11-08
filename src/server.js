@@ -4,6 +4,8 @@ import { settings } from '#Config/settings.js';
 import { createApp } from './app.js';
 import { logger } from '#Libs/logger.js';
 import { closeBus } from '#Modules/simulacra/realtime/simulacrum.events.js';
+import { closeContentBus } from '#Libs/content_events.js';
+import { startMathPrewarm } from '#Libs/math_prewarm.js';
 import { attachRealtime } from '#Modules/simulacra/realtime/simulacrum.realtime.js';
 
 // Punto de entrada de la API JSON: conecta Mongo, levanta HTTP y se apaga en orden.
@@ -34,6 +36,8 @@ async function bootstrap() {
     // Tiempo real de los simulacros programados. `createApp()` no cambia: las pruebas con supertest no abren puertos.
     const io = settings.realtime.enabled ? attachRealtime(server) : null;
 
+    if (settings.mathPrewarm.enabled) startMathPrewarm();
+
     let closing = false;
     const shutdown = async (signal) => {
         if (closing) return;
@@ -51,6 +55,7 @@ async function bootstrap() {
         closeHttp(async () => {
             try {
                 await closeBus();
+                await closeContentBus();
                 await mongoose.disconnect();
                 if (!redisClient.isMemoryFallback) await redisClient.quit();
             } catch (error) {
