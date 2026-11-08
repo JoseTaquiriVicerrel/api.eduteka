@@ -39,6 +39,9 @@ router.post(
     controller.finish,
 );
 
+// Latido del examen en curso (cada 20 s): renueva el bloqueo de un solo dispositivo.
+router.post('/intentos/:attempt_id/latido', ...takers, rateLimit('write'), validate(AttemptParams, 'params'), controller.heartbeat);
+
 router.get('/:slug', authenticate, validate(SlugParams, 'params'), controller.detail);
 router.post(
     '/:slug/inscribirme',

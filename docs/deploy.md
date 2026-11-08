@@ -5,8 +5,12 @@ Esquema: **Cloudflare → Nginx → Node (API)**, en un VPS, con MongoDB y Redis
 ```
 App ──HTTPS──▶ Cloudflare ──HTTPS──▶ Nginx (443) ──HTTP local──▶ Node (127.0.0.1:3000)
                  │                      │                           │
-        CF-Connecting-IP        real_ip + X-Forwarded-For      TRUST_PROXY=1 → req.ip
+        CF-Connecting-IP        real_ip + X-Forwarded-For   TRUST_PROXY=loopback → req.ip
+                                                                    ▲
+Web ──HTTPS──▶ Cloudflare ──HTTPS──▶ Nginx (443) ──▶ Next ──HTTP local (X-Forwarded-For: visitante)
 ```
+
+La web (Next) llama a la API **desde su servidor y directo a Node**, nunca por `https://api.eduteka.pe` (ver la sección 4.1).
 
 ## 1. Requisitos
 
@@ -171,8 +175,8 @@ No reconstruye nada: cambia el enlace y reinicia (unos segundos). Para que quede
 ```env
 NODE_ENV=production
 PORT=3000
-LISTEN_HOST=127.0.0.1            # solo Nginx puede llegar a Node
-TRUST_PROXY=1                    # un salto: Nginx (ver nginx-api.conf)
+LISTEN_HOST=127.0.0.1            # solo Nginx y Next (mismo servidor) pueden llegar a Node
+TRUST_PROXY=loopback             # confia en Nginx y Next por direccion (ver seccion 4)
 API_CORS_ORIGINS=                # vacía: solo la usa la app móvil
 PUBLIC_API_URL=https://api.eduteka.pe
 LOG_LEVEL=info
@@ -186,6 +190,11 @@ PAYMENT_YAPE_HOLDER=<titular tal como lo muestra Yape>
 PAYMENT_YAPE_NUMBER=…
 PAYMENT_REQUIRE_RECEIVER_MATCH=true
 PAYMENT_AUTO_APPROVE_MAX_AMOUNT=<soles; 0 = sin límite>
+
+# Simulacros en vivo (socket). El Redis debe ser EL MISMO que usa el monolito: es por donde avisa.
+REALTIME_ENABLED=true            # false apaga el socket sin tocar código
+REALTIME_PATH=/api/v1/realtime
+REALTIME_MAX_CONNECTIONS_PER_USER=5
 ```
 
 Generar un secreto: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`.
@@ -195,16 +204,65 @@ La lista completa y comentada está en `.env.example`.
 
 1. `sudo /opt/eduteka/bin/update-cloudflare-ips.sh` (una vez; luego semanal, p. ej. enlazándolo en `/etc/cron.weekly/`).
 2. Copiar `deploy/nginx-api.conf` (del repositorio) a `/etc/nginx/conf.d/api.eduteka.pe.conf`, poner el certificado y `sudo nginx -t && sudo systemctl reload nginx`.
-3. Cloudflare: SSL/TLS **Full (strict)**, *Always Use HTTPS*, HSTS. La API responde `Cache-Control: no-store` salvo `/api/v1/media/*`.
+3. Cloudflare: SSL/TLS **Full (strict)**, *Always Use HTTPS*, HSTS. Los WebSockets están habilitados por defecto en todos los planes (ver 4.2). La API responde `Cache-Control: no-store` salvo `/api/v1/media/*`.
 4. Firewall: abrir solo 22, 80 y 443 (`ufw allow 22,80,443/tcp`; el 3000 queda cerrado). Mejor aún: 80/443 solo para los rangos de Cloudflare.
 
-Por qué `TRUST_PROXY=1` y no `2`: Nginx ya resuelve la IP real con `real_ip` y **sobrescribe** `X-Forwarded-For` con ella, así que a Node solo le llega un proxy delante. Si prefieres no usar `real_ip` y dejar `$proxy_add_x_forwarded_for` por defecto, serían dos saltos (`TRUST_PROXY=2`), pero entonces el firewall debe garantizar que nadie llegue al servidor sin pasar por Cloudflare.
+Por qué `TRUST_PROXY=loopback`: Nginx ya resuelve la IP real con `real_ip` y **sobrescribe** `X-Forwarded-For` con ella, y Next pone ahí la IP del visitante. Los dos llegan a Node desde `127.0.0.1`, así que basta confiar en las conexiones locales: Express revisa `X-Forwarded-For` de derecha a izquierda y toma la primera IP que no es de confianza, que es la del celular o la del visitante de la web. `TRUST_PROXY=1` daría el mismo resultado aquí, pero confía por número de saltos, no por dirección: cualquiera que llegue a Node directamente heredaría la confianza. Si prefieres no usar `real_ip` y dejar `$proxy_add_x_forwarded_for` por defecto, `X-Forwarded-For` traería también la IP de Cloudflare y habría que contar saltos (`TRUST_PROXY=2`), con un firewall que garantice que nadie llegue sin pasar por Cloudflare; eso rompe además la cuenta para la web, que llega con un salto menos.
 
-Comprobación: `RateLimit-Remaining` debe **bajar** aunque se cambie la cabecera:
+Comprobación desde fuera: `RateLimit-Remaining` debe **bajar** aunque se cambie la cabecera (Nginx la sobrescribe):
 
 ```bash
 for i in 1 2 3; do curl -si -H "X-Forwarded-For: 9.9.9.$i" https://api.eduteka.pe/api/v1/config | grep -i ratelimit-remaining; done
 ```
+
+### 4.1 La web (Next) frente a la API
+
+Next llama a la API desde su servidor con `X-Edk-Client`, el secreto y `X-Forwarded-For: <IP del visitante>`. El límite por IP (en especial el `auth` de `POST /auth/web-exchange`, 10/min) cuenta por esa IP, así que tres cosas tienen que cumplirse:
+
+1. **Next llama directo a Node**, en el `.env` de `eduteka/web`: `EDK_API_URL=http://127.0.0.1:3000`. Si apuntara a `https://api.eduteka.pe`, la llamada pasaría por Cloudflare y por este Nginx, que **sobrescribe** `X-Forwarded-For` con la IP del propio servidor: todos los visitantes de la web compartirían un solo cupo y el puente de sesión fallaría con carga.
+2. **La API confía en la dirección de Next:** `TRUST_PROXY=loopback` si están en el mismo servidor.
+3. **El Nginx delante de Next también sobrescribe `X-Forwarded-For`.** Next toma la **primera** IP de la cabecera que recibe (`proxy.ts`, `lib/edk-api.ts`); con `$proxy_add_x_forwarded_for` el visitante podría poner cualquier IP delante y saltarse el límite o gastar el de otro. En el `server` de `www.eduteka.pe` (el `include` de Cloudflare va una sola vez en el contexto `http`):
+
+   ```nginx
+   location / {
+       proxy_pass http://127.0.0.1:3100;
+       proxy_set_header Host            $host;
+       proxy_set_header X-Forwarded-For $remote_addr;   # SOBRESCRIBE: $remote_addr ya es la IP real (real_ip)
+       proxy_set_header X-Real-IP       $remote_addr;
+       proxy_set_header X-Forwarded-Proto $scheme;
+   }
+   ```
+
+**Si Next corre en otro servidor** (p. ej. `10.0.0.5` en la red privada): `LISTEN_HOST=<IP privada de la API>`, `TRUST_PROXY=loopback, 10.0.0.5`, `EDK_API_URL=http://<IP privada de la API>:3000`, y el firewall abre el 3000 **solo** para `10.0.0.5`. Nunca `uniquelocal` entero ni un número de saltos: cualquier equipo de la red podría falsear su IP.
+
+Comprobación desde el servidor: cada IP debe tener **su propio** contador (`RateLimit-Remaining` no baja entre IPs distintas):
+
+```bash
+for i in 1 2 3; do curl -si -H "X-Forwarded-For: 9.9.9.$i" http://127.0.0.1:3000/api/v1/config | grep -i ratelimit-remaining; done
+```
+
+### 4.2 Simulacros en vivo (socket)
+
+El socket (`/api/v1/realtime/`) es Socket.IO sobre WebSocket. Tres cosas tienen que cumplirse:
+
+1. **Nginx:** el `location /api/v1/realtime/` de `deploy/nginx-api.conf` (con `Upgrade`, `Connection "upgrade"` y lectura de 3600 s) va **antes** de `location /`. El `location /` manda `Connection ""` y cortaría el WebSocket. Tras copiarlo: `sudo nginx -t && sudo systemctl reload nginx`.
+2. **Cloudflare:** WebSocket viene activo en todos los planes; confirma SSL/TLS **Full (strict)**. Si se corta cada ~100 s revisa que no haya una regla de *proxy read timeout* ajena.
+3. **Redis compartido:** la API se suscribe al canal `edk:simulacrum:events`, por donde el monolito publica cada hito (cierre, inicio, fin, resultados). Sin Redis (o con otro Redis distinto) el socket arranca igual, pero **no llega ningún aviso**: los clientes caen al sondeo de 30 s. En el arranque la API lo avisa en el log (`Sin Redis: la API no recibira avisos del monolito…`).
+
+Con una sola instancia no hacen falta *sticky sessions* ni el adaptador de Redis de Socket.IO. Si algún día hay varias, cada una se suscribe al mismo canal y emite a **sus** sockets; solo falta *sticky sessions* en el balanceador para el *polling*.
+
+La web (Next) llama a Node directo (4.1) y no pasa por este bloque; el **navegador** y la app sí pasan por `api.eduteka.pe`.
+
+**Orden de despliegue:** (1) API con los endpoints de simulacros programados (compatible con las apps actuales); (2) Nginx con el `location` del socket; (3) API con el socket y el monolito publicando la señal, en cualquier orden — sin suscriptor la señal se pierde sin daño y sin publicador solo faltan los avisos.
+
+**Comprobación del socket** (Engine.IO debe abrir con `200` y un cuerpo que empieza por `0{"sid"`, lo que prueba que la ruta llega a Node; el rechazo sin token llega al unirse al namespace):
+
+```bash
+curl -si "https://api.eduteka.pe/api/v1/realtime/?EIO=4&transport=polling" | head -3
+node scripts/realtime_watch.mjs https://api.eduteka.pe <slug> <access_token>
+```
+
+La prueba de punta a punta con el monolito está en `docs/prueba-e2e-simulacros-en-vivo.md`.
 
 ## 5. Servicio (systemd)
 
@@ -235,8 +293,10 @@ Sin `REMOTE` el respaldo queda en el mismo disco: no protege de un fallo del ser
 
 - [ ] `/health` → `ok` (mongo y redis arriba).
 - [ ] `JWT_SECRET` ≠ `JWT_PRIVATE_KEY`, y claves de Cloudinary/otros que se hayan filtrado, rotadas.
-- [ ] `NODE_ENV=production`, `TRUST_PROXY=1`, `LISTEN_HOST=127.0.0.1`, puerto 3000 cerrado.
-- [ ] Prueba de `X-Forwarded-For` falso (sección 4).
+- [ ] `NODE_ENV=production`, `TRUST_PROXY=loopback`, `LISTEN_HOST=127.0.0.1`, puerto 3000 cerrado.
+- [ ] Prueba de `X-Forwarded-For` falso (sección 4) y contadores por IP desde el servidor (sección 4.1).
+- [ ] Web: `EDK_API_URL` apunta a Node (`http://127.0.0.1:3000`) y el Nginx de `www` sobrescribe `X-Forwarded-For`.
+- [ ] Socket de simulacros: `location /api/v1/realtime/` en Nginx, mismo Redis que el monolito y `scripts/realtime_watch.mjs` recibe los eventos (4.2).
 - [ ] `PAYMENT_YAPE_HOLDER` o `PAYMENT_YAPE_NUMBER` definido; prueba con un comprobante real.
 - [ ] Respaldo ejecutado y restauración probada.
 - [ ] *(cuando actives CI/CD)* Secretos de GitHub, llave con comando forzado y primer despliegue manual verificado; `rollback.sh` probado una vez.

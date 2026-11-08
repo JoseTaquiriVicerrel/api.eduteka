@@ -11,6 +11,7 @@ import { invalidateProgress } from '#Modules/progress/progress.cache.js';
 import { assertQuota, consumeQuota, remainingQuota } from '#Modules/questions/answer.quota.js';
 import { recordAnswers } from '#Modules/questions/answer.recorder.js';
 import { practicableFilter, resolveArea } from '#Modules/questions/question.filters.js';
+import { suggestNext } from './practice.suggestions.js';
 
 // Practicas: por area (se generan al vuelo) y guardadas (listas publicadas).
 
@@ -174,9 +175,10 @@ const gradeAndSave = async ({ user, scope, attemptFields, filter, questionIds, a
 };
 
 export const finalizeAreaPractice = async ({ user, body }) => {
-    const { _id: areaId } = await resolveArea(body.area);
+    const area = await resolveArea(body.area);
+    const { _id: areaId } = area;
 
-    return gradeAndSave({
+    const outcome = await gradeAndSave({
         user,
         scope: `area:${areaId}`,
         attemptFields: { source: 'area', area_id: areaId, topic: body.topic ?? null },
@@ -185,6 +187,10 @@ export const finalizeAreaPractice = async ({ user, body }) => {
         answers: body.answers,
         time: body.time,
     });
+
+    // Que practicar despues (tambien en el reenvio de un cierre: el cliente lo vuelve a pintar).
+    outcome.result.suggestions = await suggestNext('area', { user, area, topic: body.topic ?? null });
+    return outcome;
 };
 
 // --- Practicas guardadas (listas publicadas) --------------------------------
@@ -270,7 +276,7 @@ export const finalizePractice = async ({ user, slug, body }) => {
     const practice = await findVisiblePractice(slug, user);
     const questions = await loadPracticeQuestions(practice, { _id: 1 });
 
-    return gradeAndSave({
+    const outcome = await gradeAndSave({
         user,
         scope: `lista:${practice._id}`,
         attemptFields: { source: 'lista', practice_id: practice._id, practice_slug: practice.slug },
@@ -279,4 +285,7 @@ export const finalizePractice = async ({ user, slug, body }) => {
         answers: body.answers,
         time: body.time,
     });
+
+    outcome.result.suggestions = await suggestNext('list', { user, practice });
+    return outcome;
 };

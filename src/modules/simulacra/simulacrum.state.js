@@ -11,6 +11,8 @@
 //   - automatic: evento con hora de inicio y fin globales (start_date..end_date).
 //   - bajo demanda: cada postulante arranca su propio cronometro al iniciar.
 
+import { PHASES, getPhase, isScheduled } from './simulacrum.window.js';
+
 export const attemptNumberOf = (enrollment) => enrollment?.attempt_number ?? 1;
 
 /** Un reintento (intento > 1) abierto: unica razon para entrar a un simulacro ya cerrado. */
@@ -58,11 +60,20 @@ export const retryBlockedReason = (enrollment, simulacrum) => {
 
 /**
  * upcoming | live | finished.
- *  - finished: cerrado por el administrador, o evento cuya hora de fin ya paso.
- *  - upcoming: evento que aun no empezo (sin fecha de inicio o inicio futuro).
- *  - live: todo lo demas (los simulacros bajo demanda estan siempre abiertos).
+ *  - Programado (start_date y end_date definidos): por fase. registration y waiting son
+ *    `upcoming`. El flag `automatic` no decide nada (contrato §1).
+ *  - Sin programar:
+ *      finished: cerrado por el administrador, o evento cuya hora de fin ya paso.
+ *      upcoming: evento (`automatic`) que aun no empezo (sin fecha de inicio o inicio futuro).
+ *      live: todo lo demas (los simulacros bajo demanda estan siempre abiertos).
  */
 export const simulacrumStatus = (simulacrum, now = new Date()) => {
+    if (isScheduled(simulacrum)) {
+        const phase = getPhase(simulacrum, now);
+        if (phase === PHASES.FINISHED) return 'finished';
+        return phase === PHASES.LIVE ? 'live' : 'upcoming';
+    }
+
     const end = toTime(simulacrum.end_date);
     if (simulacrum.finished === true) return 'finished';
     if (!simulacrum.automatic) return 'live';
@@ -85,6 +96,15 @@ export const enrollmentState = (simulacrum, enrollment, now = new Date()) => {
         return ended ? 'finished' : 'in_progress';
     }
 
+    // Programado: registered hasta que abre la ventana; despues in_progress solo si ya empezo.
+    if (isScheduled(simulacrum)) {
+        if (enrollment.finished) return 'finished';
+        const phase = getPhase(simulacrum, now);
+        if (phase === PHASES.FINISHED) return 'finished';
+        if (phase === PHASES.LIVE && enrollment.start_exam) return ended ? 'finished' : 'in_progress';
+        return 'registered';
+    }
+
     if (simulacrum.automatic) {
         if (simulacrum.finished || enrollment.finished) return 'finished';
         if (simulacrum.start_date && simulacrum.end_date) {
@@ -98,13 +118,26 @@ export const enrollmentState = (simulacrum, enrollment, now = new Date()) => {
     return 'registered';
 };
 
-/** Si un evento (automatic) admite iniciar ahora. null = si; si no, el motivo. */
+/**
+ * Si se puede abrir el examen por primera vez ahora. null = si; si no, { code, message }.
+ *  - Programado: por fase (NOT_STARTED antes de start_date, WINDOW_ENDED desde end_date o si esta cerrado).
+ *  - Sin programar: sin ventana, salvo un evento (`automatic`) sin fechas, que sigue sin abrir (NOT_STARTED).
+ */
 export const startWindowViolation = (simulacrum, now = new Date()) => {
+    const notStarted = { code: 'NOT_STARTED', message: 'El simulacro todavía no ha comenzado.' };
+    const ended = { code: 'WINDOW_ENDED', message: 'El simulacro ya cerró.' };
+
+    if (isScheduled(simulacrum)) {
+        const phase = getPhase(simulacrum, now);
+        if (phase === PHASES.LIVE) return null;
+        return phase === PHASES.FINISHED ? ended : notStarted;
+    }
+
     if (!simulacrum.automatic) return null;
 
     const start = toTime(simulacrum.start_date);
     const end = toTime(simulacrum.end_date);
-    if (start === null || now.getTime() < start) return 'El simulacro todavía no ha comenzado.';
-    if (end !== null && now.getTime() > end) return 'El simulacro ya cerró.';
+    if (start === null || now.getTime() < start) return notStarted;
+    if (end !== null && now.getTime() > end) return ended;
     return null;
 };

@@ -66,10 +66,43 @@ describe('estado del simulacro', () => {
 
     it('startWindowViolation: solo los eventos tienen ventana', () => {
         assert.equal(startWindowViolation({ automatic: false }, NOW), null);
-        assert.match(startWindowViolation({ automatic: true, start_date: at(5), end_date: at(60) }, NOW), /no ha comenzado/);
-        assert.match(startWindowViolation({ automatic: true }, NOW), /no ha comenzado/);
-        assert.match(startWindowViolation({ automatic: true, start_date: at(-60), end_date: at(-5) }, NOW), /cerró/);
+        assert.match(startWindowViolation({ automatic: true, start_date: at(5), end_date: at(60) }, NOW).message, /no ha comenzado/);
+        assert.match(startWindowViolation({ automatic: true }, NOW).message, /no ha comenzado/);
+        assert.match(startWindowViolation({ automatic: true, start_date: at(-60), end_date: at(-5) }, NOW).message, /cerró/);
         assert.equal(startWindowViolation({ automatic: true, start_date: at(-5), end_date: at(60) }, NOW), null);
+    });
+
+    // Programado = start_date y end_date definidos; `automatic` no decide nada.
+    describe('simulacro programado (por fechas)', () => {
+        const sched = (extra = {}) => ({ automatic: false, register_close_date: at(-20), start_date: at(-10), end_date: at(50), ...extra });
+
+        it('simulacrumStatus: por fase, sin mirar automatic', () => {
+            assert.equal(simulacrumStatus(sched({ register_close_date: at(5), start_date: at(10), end_date: at(70) }), NOW), 'upcoming'); // registration
+            assert.equal(simulacrumStatus(sched({ register_close_date: at(-5), start_date: at(10), end_date: at(70) }), NOW), 'upcoming'); // waiting
+            assert.equal(simulacrumStatus(sched(), NOW), 'live');
+            assert.equal(simulacrumStatus(sched({ start_date: at(-90), end_date: at(-30) }), NOW), 'finished');
+            assert.equal(simulacrumStatus(sched({ finished: true }), NOW), 'finished');
+            // Borde: en end_date ya es finished.
+            assert.equal(simulacrumStatus(sched({ end_date: NOW }), NOW), 'finished');
+        });
+
+        it('startWindowViolation: codigos NOT_STARTED / WINDOW_ENDED', () => {
+            assert.equal(startWindowViolation(sched({ start_date: at(5) }), NOW).code, 'NOT_STARTED');
+            assert.equal(startWindowViolation(sched({ start_date: at(-60), end_date: at(-5) }), NOW).code, 'WINDOW_ENDED');
+            assert.equal(startWindowViolation(sched({ finished: true }), NOW).code, 'WINDOW_ENDED');
+            assert.equal(startWindowViolation(sched(), NOW), null);
+        });
+
+        it('enrollmentState: registered hasta live; despues in_progress solo si empezo', () => {
+            const waiting = sched({ start_date: at(10), end_date: at(70) });
+            assert.equal(enrollmentState(waiting, { state: true }, NOW), 'registered');
+            assert.equal(enrollmentState(sched(), { state: true }, NOW), 'registered'); // live y sin empezar: entra tarde
+            assert.equal(enrollmentState(sched(), { state: true, start_exam: at(-5), end_exam: at(50) }, NOW), 'in_progress');
+            assert.equal(enrollmentState(sched(), { state: true, start_exam: at(-5), end_exam: at(50), finished: true }, NOW), 'finished');
+            assert.equal(enrollmentState(sched({ start_date: at(-90), end_date: at(-30) }), { state: true }, NOW), 'finished');
+            assert.equal(enrollmentState(sched({ finished: true }), { state: true }, NOW), 'finished');
+            assert.equal(enrollmentState(sched(), null, NOW), 'unregistered');
+        });
     });
 });
 

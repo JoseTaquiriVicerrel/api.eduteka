@@ -14,6 +14,11 @@ const simulacrumSchema = new mongoose.Schema({
   date_program: Date,
   start_date: Date,
   end_date: Date,
+  // Simulacro programado (en vivo): cierre de inscripciones (vacio = start_date) y publicacion
+  // programada de resultados (vacio = al terminar la ventana). Opcionales y sin default: la API
+  // comparte base con el monolito y no migra datos.
+  register_close_date: Date,
+  results_public_at: Date,
   time: Number,
   image_post: String,
   score: Number,

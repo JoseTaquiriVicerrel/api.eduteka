@@ -7,7 +7,7 @@ import { settings } from '#Config/settings.js';
 import { ApiError } from '#Libs/api_error.js';
 import { canSeeSolutions, isPremium } from '#Libs/capabilities.js';
 import { deleteCapture, saveCapture } from '#Libs/capture_storage.js';
-import { del, setNX } from '#Libs/kv.js';
+import { del, getJson, setJson, setNX } from '#Libs/kv.js';
 import { skipOf } from '#Libs/paginate.js';
 import { getSimulacrumAreaOptions } from '#Libs/simulacrum_areas.js';
 import { sendMail } from '#Libs/mailer.js';
@@ -16,7 +16,9 @@ import { verifyVoucher } from '#Modules/payments/voucher.verify.js';
 import { invalidateProgress } from '#Modules/progress/progress.cache.js';
 import { archiveAttempt, attemptFilter, listAttempts, startNewAttempt } from './simulacrum.attempts.js';
 import { gradeAttempt } from './simulacrum.grading.js';
+import { EXAM_HEARTBEAT_SECONDS, EXAM_SESSION_TTL_SECONDS, claimExamSession } from './simulacrum.session.js';
 import { loadQuestionSet, questionIdSet } from './simulacrum.questions.js';
+import { PHASES, attemptDeadline, canRegister, getPhase, isScheduled, resultsAt, resultsPublished, scheduleView } from './simulacrum.window.js';
 import {
     attemptExpired, attemptNumberOf, enrollmentState, freezesOfficialScore, isGeneral, isRetryInProgress,
     retryBlockedReason, simulacrumStatus, startWindowViolation,
@@ -37,6 +39,7 @@ const LIGHT_PIPELINE = [
         $project: {
             title: 1, slug: 1, description: 1, image_post: 1, institution: 1, price: 1, duration: 1, automatic: 1,
             finished: 1, general: 1, verified: 1, state: 1, start_date: 1, end_date: 1, date_program: 1, for_register: 1,
+            register_close_date: 1, results_public_at: 1,
             public_results: 1, score_correct: 1, score_incorrect: 1, score_not_answered: 1, prospect: 1, created_at: 1,
             general_count: { $size: { $filter: { input: { $ifNull: ['$general_items', []] }, cond: { $eq: ['$$this.itype', 'question'] } } } },
             areas: {
@@ -92,7 +95,10 @@ const serializeSummary = (simulacrum, enrollment, now) => ({
     end_date: iso(simulacrum.end_date),
     scheduled_for: iso(simulacrum.date_program),
     for_register: simulacrum.for_register !== false,
-    public_results: simulacrum.public_results !== false,
+    // Programado: solo cuenta `=== true` (un simulacro recien creado no publica durante la ventana).
+    public_results: resultsPublished(simulacrum),
+    // Horario del simulacro programado (null si no lo es). Aditivo: los clientes antiguos lo ignoran.
+    schedule: scheduleView(simulacrum, now),
     enrolled: enrollment === undefined ? undefined : Boolean(enrollment),
 });
 
@@ -111,6 +117,8 @@ const serializeEnrollment = (simulacrum, enrollment, now) => {
         amount_paid: enrollment.amount_paid ?? 0,
         attempt_number: attemptNumberOf(enrollment),
         finished: enrollment.finished === true,
+        // Inscrito aprobado que nunca abrio el examen (lo marca el cierre de la ventana; en Mongo es `ausent`).
+        absent: enrollment.ausent === true,
         start_exam: iso(enrollment.start_exam),
         end_exam: iso(enrollment.end_exam),
         state: enrollmentState(simulacrum, enrollment, now),
@@ -121,17 +129,41 @@ const serializeEnrollment = (simulacrum, enrollment, now) => {
 
 // --- Listado y ficha --------------------------------------------------------
 
+// Mismo criterio que `simulacrumStatus` (simulacrum.state.js), pero como consulta.
+// Programado = start_date y end_date definidos (un campo ausente cuenta como null).
+const SCHEDULED = { start_date: { $ne: null }, end_date: { $ne: null } };
+const UNSCHEDULED = { $or: [{ start_date: null }, { end_date: null }] };
+
 const statusClauses = (status, now) => {
     const open = { $or: [{ end_date: null }, { end_date: { $gte: now } }] };
     switch (status) {
         case 'finished':
-            return [{ $or: [{ finished: true }, { automatic: true, end_date: { $lt: now } }] }];
+            return [{
+                $or: [
+                    { finished: true },
+                    { ...SCHEDULED, end_date: { $lte: now } },
+                    { automatic: true, end_date: { $lt: now } },
+                ],
+            }];
         case 'upcoming':
-            return [{ finished: { $ne: true } }, { automatic: true }, { $or: [{ start_date: null }, { start_date: { $gt: now } }] }, open];
+            return [
+                { finished: { $ne: true } },
+                {
+                    $or: [
+                        { ...SCHEDULED, start_date: { $gt: now } },
+                        { $and: [UNSCHEDULED, { automatic: true }, { $or: [{ start_date: null }, { start_date: { $gt: now } }] }, open] },
+                    ],
+                },
+            ];
         case 'live':
             return [
                 { finished: { $ne: true } },
-                { $or: [{ automatic: { $ne: true } }, { $and: [{ automatic: true }, { start_date: { $lte: now } }, open] }] },
+                {
+                    $or: [
+                        { ...SCHEDULED, start_date: { $lte: now }, end_date: { $gt: now } },
+                        { $and: [UNSCHEDULED, { $or: [{ automatic: { $ne: true } }, { start_date: { $lte: now } }] }] },
+                    ],
+                },
             ];
         default:
             return null;
@@ -154,6 +186,7 @@ export const listSimulacra = async ({ institution, q, status, page, limit, user 
         SimulacrumModel.find(filter, {
             title: 1, slug: 1, description: 1, image_post: 1, institution: 1, price: 1, duration: 1, automatic: 1, finished: 1,
             start_date: 1, end_date: 1, date_program: 1, for_register: 1, public_results: 1,
+            register_close_date: 1, results_public_at: 1,
         }).sort({ created_at: -1, _id: 1 }).skip(skipOf({ page, limit })).limit(limit).lean().exec(),
         SimulacrumModel.countDocuments(filter).exec(),
     ]);
@@ -169,6 +202,7 @@ export const listSimulacra = async ({ institution, q, status, page, limit, user 
 
     return {
         total,
+        server_time: now.toISOString(),
         items: items.map((item) => serializeSummary(item, enrolledIds ? enrolledIds.has(item._id) : undefined, now)),
     };
 };
@@ -205,6 +239,19 @@ const questionCounts = async (simulacrum) => {
     return { perArea, total };
 };
 
+// Inscritos del simulacro (inscripciones aprobadas: una por usuario). Es un dato publico de la ficha y la
+// ficha es publica, asi que se cachea unos segundos; `createEnrollment` lo invalida al inscribirse alguien.
+const REGISTERED_COUNT_TTL_SECONDS = 60;
+const registeredCountKey = (simulacrumId) => `simulacrum-registered:${simulacrumId}`;
+
+const registeredCount = async (simulacrumId) => {
+    const cached = await getJson(registeredCountKey(simulacrumId));
+    if (Number.isInteger(cached)) return cached;
+    const count = await UserSimulacrumModel.countDocuments({ simulacrum_id: simulacrumId, state: true }).exec();
+    await setJson(registeredCountKey(simulacrumId), count, REGISTERED_COUNT_TTL_SECONDS);
+    return count;
+};
+
 export const getSimulacrumDetail = async ({ slug, user }) => {
     const now = new Date();
     const simulacrum = await findLight(slug);
@@ -213,7 +260,7 @@ export const getSimulacrumDetail = async ({ slug, user }) => {
         : null;
 
     const options = getSimulacrumAreaOptions(simulacrum);
-    const counts = await questionCounts(simulacrum);
+    const [counts, registered] = await Promise.all([questionCounts(simulacrum), registeredCount(simulacrum._id)]);
 
     return {
         ...serializeSummary(simulacrum, user ? enrollment : undefined, now),
@@ -227,6 +274,8 @@ export const getSimulacrumDetail = async ({ slug, user }) => {
             questions_count: counts.perArea(key, area),
         })),
         questions_total: counts.total,
+        // Usuarios inscritos (con la inscripcion aprobada). Los pagos en revision aun no cuentan.
+        registered_count: registered,
         scoring: {
             correct: simulacrum.score_correct ?? null,
             incorrect: simulacrum.score_incorrect ?? null,
@@ -252,7 +301,14 @@ const resolveFullname = (body, user) => {
 export const enroll = async ({ user, slug, body: input, capture }) => {
     const simulacrum = await SimulacrumModel.findOne({ slug, ...VISIBLE }).lean().exec();
     if (!simulacrum) throw ApiError.notFound('No encontramos ese simulacro.');
-    if (simulacrum.for_register !== true) throw ApiError.forbidden('Ha finalizado el plazo de inscripción a este simulacro.');
+    if (isScheduled(simulacrum)) {
+        // Programado: solo en la fase de inscripcion (antes de register_close_date, o de start_date si no hay).
+        // Cubre tambien `for_register: false` y `finished`. Los ya inscritos no pasan por aqui: pueden llegar tarde.
+        if (!canRegister(simulacrum)) throw ApiError.registrationClosed();
+    } else if (simulacrum.for_register === false) {
+        // Sin programar, el interruptor del admin es el unico control. Un campo sin definir se permite (el esquema tiene default true).
+        throw ApiError.forbidden('Ha finalizado el plazo de inscripción a este simulacro.');
+    }
 
     const body = { ...input, fullname: resolveFullname(input, user) };
 
@@ -366,6 +422,9 @@ const createEnrollment = async ({ user, simulacrum, body, capture, price, area, 
             });
         }
     }
+
+    // El contador publico de inscritos cambio.
+    await del(registeredCountKey(simulacrum._id));
 
     return serializeEnrollment(simulacrum, enrollment, new Date());
 };
@@ -484,7 +543,37 @@ const attemptSummary = (enrollment) => {
 
 // --- Rendir: iniciar, autoguardar, finalizar --------------------------------
 
-export const startAttempt = async ({ user, slug }) => {
+// --- Un solo dispositivo a la vez (contrato §4.1) -----------------------------
+
+/**
+ * Reclama o renueva el bloqueo del examen para `device` ({ key, client }). Otro titular vivo => 409 con sus
+ * datos y NADA se escribe; intento ya cerrado => ATTEMPT_ALREADY_FINISHED. Devuelve si lo tomo de otro.
+ */
+const holdExam = async ({ enrollment, device }) => {
+    const claim = await claimExamSession(UserSimulacrumModel, enrollment._id, device.key, device.client);
+    if (!claim.ok) {
+        const where = claim.holder.client === 'app' ? 'la app de Eduteka' : 'la web de Eduteka';
+        throw ApiError.attemptActiveElsewhere(claim.holder, `Tu examen está abierto en ${where}.`);
+    }
+    if (claim.closed) throw ApiError.attemptFinished();
+    return claim.took_over;
+};
+
+// Ventana del intento oficial de un programado: el cliente avisa si entro tarde (`shortened`). null en no
+// programados y en reintentos. Sale de los valores guardados, asi que reabrir el intento da lo mismo.
+const startWindow = ({ simulacrum, enrollment, retrying }) => {
+    if (retrying || !isScheduled(simulacrum) || !enrollment.start_exam || !enrollment.end_exam) return null;
+    const allowed = Math.max(0, Math.round((toTime(enrollment.end_exam) - toTime(enrollment.start_exam)) / 1000));
+    const duration = Math.round(Number(simulacrum.duration) * 60);
+    return {
+        end_date: iso(simulacrum.end_date),
+        allowed_seconds: allowed,
+        duration_seconds: duration,
+        shortened: allowed < duration,
+    };
+};
+
+export const startAttempt = async ({ user, slug, device }) => {
     const now = new Date();
     const simulacrum = await SimulacrumModel.findOne({ slug }).lean().exec();
     if (!simulacrum) throw ApiError.notFound('No encontramos ese simulacro.');
@@ -492,30 +581,48 @@ export const startAttempt = async ({ user, slug }) => {
     let enrollment = await UserSimulacrumModel.findOne({ user_id: user._id, simulacrum_id: simulacrum._id }).lean().exec();
     if (!enrollment) throw ApiError.notFound('No estás inscrito en este simulacro.');
     if (enrollment.state !== true) throw ApiError.forbidden('Tu inscripción todavía no ha sido verificada.');
-    if (enrollment.finished === true) throw ApiError.conflict('Ya terminaste este intento.');
+    if (enrollment.finished === true) throw ApiError.attemptFinished('Ya terminaste este intento.');
 
     const retrying = isRetryInProgress(enrollment);
-    // Un simulacro cerrado ya no admite intentos oficiales; un reintento ya abierto si.
-    if (simulacrum.finished === true && !retrying) throw ApiError.forbidden('El simulacro ya cerró.');
-    if (!retrying) {
-        const violation = startWindowViolation(simulacrum, now);
-        if (violation) throw ApiError.forbidden(violation);
-    }
 
-    // Se le acabo el tiempo y nadie lo cerro: se califica con lo guardado y se avisa.
+    // Orden (importa): primero el vencimiento de un intento ya iniciado, antes de cualquier ventana. Quien
+    // empezo a las 19:50 y reabre a las 21:05 recibe "ya termino" y queda calificado, no WINDOW_ENDED.
     if (attemptExpired(enrollment, now)) {
         await gradeAndClose({ simulacrum, enrollment, finishedAt: now });
-        throw ApiError.conflict('El tiempo de este intento terminó; ya fue calificado con tus respuestas guardadas.');
+        throw ApiError.attemptFinished('El tiempo de este intento terminó; ya fue calificado con tus respuestas guardadas.');
     }
 
+    // Ventana de la PRIMERA apertura. Un intento ya iniciado y vigente se reabre sin volver a evaluarla, y un
+    // reintento (practica) no la tiene.
+    if (!retrying) {
+        if (isScheduled(simulacrum)) {
+            // Programado: manda la fase (el monolito pone `finished: true` al terminar la ventana y debe salir WINDOW_ENDED).
+            if (!enrollment.start_exam) {
+                const violation = startWindowViolation(simulacrum, now);
+                if (violation) throw violation.code === 'NOT_STARTED' ? ApiError.notStarted(violation.message) : ApiError.windowEnded(violation.message);
+            }
+        } else {
+            // Sin programar: cerrado por el administrador, y los eventos `automatic` sin fechas completas.
+            if (simulacrum.finished === true) throw ApiError.forbidden('El simulacro ya cerró.');
+            const violation = startWindowViolation(simulacrum, now);
+            if (violation) throw violation.code === 'NOT_STARTED' ? ApiError.notStarted(violation.message) : ApiError.windowEnded(violation.message);
+        }
+    }
+
+    const minutes = Number(simulacrum.duration);
+    if (!enrollment.start_exam && !(minutes > 0)) throw ApiError.conflict('Este simulacro no tiene una duración configurada.');
+
+    // Un solo dispositivo: se reclama ANTES de fijar el cronometro. De dos aperturas simultaneas gana una.
+    const tookOver = await holdExam({ enrollment, device });
+
     if (!enrollment.start_exam) {
-        const minutes = Number(simulacrum.duration);
-        if (!(minutes > 0)) throw ApiError.conflict('Este simulacro no tiene una duración configurada.');
+        // Entrar tarde acorta el intento: nunca pasa de end_date. Un reintento (practica) no tiene tope.
+        const deadline = retrying ? new Date(now.getTime() + minutes * 60_000) : attemptDeadline(simulacrum, now, minutes);
 
         // El cronometro lo fija el servidor, una sola vez: de dos aperturas simultaneas gana una.
         const started = await UserSimulacrumModel.findOneAndUpdate(
             { _id: enrollment._id, finished: { $ne: true }, state: true, start_exam: null, attempt_number: attemptFilter(attemptNumberOf(enrollment)) },
-            { $set: { start_exam: now, end_exam: new Date(now.getTime() + minutes * 60_000) } },
+            { $set: { start_exam: now, end_exam: deadline } },
             { new: true },
         ).lean().exec();
         enrollment = started ?? (await UserSimulacrumModel.findById(enrollment._id).lean().exec());
@@ -532,6 +639,8 @@ export const startAttempt = async ({ user, slug }) => {
         // La app muestra end_exam - server_time (corregido con el reloj del servidor).
         start_exam: iso(enrollment.start_exam),
         end_exam: iso(enrollment.end_exam),
+        window: startWindow({ simulacrum, enrollment, retrying }),
+        session: { took_over: tookOver, ttl_seconds: EXAM_SESSION_TTL_SECONDS, heartbeat_seconds: EXAM_HEARTBEAT_SECONDS },
         server_time: new Date().toISOString(),
         total_questions: items.filter((item) => item.kind === 'question').length,
         answers: savedAnswers(enrollment),
@@ -572,7 +681,12 @@ const writeAnswers = async ({ simulacrum, enrollment, answers, attemptNumber }) 
         { _id: enrollment._id, finished: { $ne: true }, attempt_number: attemptFilter(attemptNumberOf(enrollment)) },
         update,
     ).exec();
-    if (written.matchedCount === 0) throw ApiError.conflict('Este intento ya no está activo.');
+    if (written.matchedCount === 0) {
+        // Se cerro entre la lectura y la escritura (o lo cerro el servidor) => "ya termino"; si no, el intento ya no es este.
+        const current = await UserSimulacrumModel.findById(enrollment._id, { finished: 1 }).lean().exec();
+        if (current?.finished === true) throw ApiError.attemptFinished();
+        throw ApiError.conflict('Este intento ya no está activo.');
+    }
     return ids.length;
 };
 
@@ -583,17 +697,19 @@ const lightQuestionDoc = (simulacrumId, area) => SimulacrumModel.findById(simula
 }).lean().exec();
 
 const assertAcceptsAnswers = (enrollment, now, { graceSeconds = settings.limits.simulacrumAnswerGraceSeconds } = {}) => {
-    if (enrollment.finished === true) throw ApiError.conflict('Este intento ya terminó.');
+    if (enrollment.finished === true) throw ApiError.attemptFinished('Este intento ya terminó.');
     if (!enrollment.start_exam) throw ApiError.conflict('Todavía no iniciaste este intento.');
     const end = toTime(enrollment.end_exam);
     if (end !== null && now.getTime() > end + graceSeconds * 1000) {
-        throw ApiError.conflict('El tiempo de este intento terminó. Finalízalo para ver tu resultado.');
+        throw ApiError.attemptFinished('El tiempo de este intento terminó. Finalízalo para ver tu resultado.');
     }
 };
 
-export const saveAnswers = async ({ user, attemptId, answers, attemptNumber }) => {
+export const saveAnswers = async ({ user, attemptId, answers, attemptNumber, device }) => {
     const enrollment = await ownEnrollment(attemptId, user);
     assertAcceptsAnswers(enrollment, new Date());
+    // Renueva el bloqueo; si lo tiene otro dispositivo, no se escribe nada.
+    await holdExam({ enrollment, device });
 
     const simulacrum = await lightQuestionDoc(enrollment.simulacrum_id, enrollment.area);
     if (!simulacrum) throw ApiError.notFound('No encontramos ese simulacro.');
@@ -602,12 +718,15 @@ export const saveAnswers = async ({ user, attemptId, answers, attemptNumber }) =
     return { saved, server_time: new Date().toISOString() };
 };
 
-export const finishAttempt = async ({ user, attemptId, answers, attemptNumber }) => {
+export const finishAttempt = async ({ user, attemptId, answers, attemptNumber, device }) => {
     const now = new Date();
     let enrollment = await ownEnrollment(attemptId, user);
 
-    if (enrollment.finished === true) throw ApiError.conflict('Ya finalizaste este intento.');
+    if (enrollment.finished === true) throw ApiError.attemptFinished('Ya finalizaste este intento.');
     if (!enrollment.start_exam) throw ApiError.conflict('Todavía no iniciaste este intento.');
+
+    // Solo el titular cierra el intento.
+    await holdExam({ enrollment, device });
 
     // Respuestas de ultima hora (dentro de la holgura). Pasado el limite, se corrige con lo guardado.
     if (answers && Object.keys(answers).length > 0) {
@@ -624,9 +743,18 @@ export const finishAttempt = async ({ user, attemptId, answers, attemptNumber })
 
     const simulacrum = await loadFull(enrollment.simulacrum_id);
     const { graded, enrollment: closed } = await gradeAndClose({ simulacrum, enrollment, finishedAt: now });
-    if (!graded) throw ApiError.conflict('Ya finalizaste este intento.');
+    if (!graded) throw ApiError.attemptFinished('Ya finalizaste este intento.');
 
     return { ...attemptSummary(closed), simulacrum_slug: simulacrum.slug };
+};
+
+/** Latido: renueva el bloqueo. Un no titular se entera pronto (409); un intento cerrado, tambien. */
+export const heartbeat = async ({ user, attemptId, device }) => {
+    const now = new Date();
+    const enrollment = await ownEnrollment(attemptId, user);
+    assertAcceptsAnswers(enrollment, now);
+    await holdExam({ enrollment, device });
+    return { ok: true, heartbeat_seconds: EXAM_HEARTBEAT_SECONDS, server_time: now.toISOString() };
 };
 
 // --- Resultados -------------------------------------------------------------
@@ -681,12 +809,41 @@ const buildRanking = async ({ simulacrum, enrollment, visible }) => {
     };
 };
 
+const RESULTS_PENDING_REASON = 'Los resultados oficiales todavía no se publican';
+
+// Respuesta de /resultados para un programado con resultados sin publicar (contrato §6).
+const deferredResults = ({ simulacrum, enrollment, now }) => {
+    const finished = enrollment.finished === true;
+    const correct = enrollment.questions_correct ?? 0;
+    const incorrect = enrollment.questions_incorrect ?? 0;
+    const notAnswered = enrollment.questions_not_answered ?? 0;
+    return {
+        simulacrum: { id: simulacrum._id, slug: simulacrum.slug, title: simulacrum.title ?? null, status: simulacrumStatus(simulacrum, now) },
+        enrolled: true,
+        absent: enrollment.ausent === true,
+        results_published: false,
+        results_at: iso(resultsAt(simulacrum)),
+        submission: finished
+            ? { finished_at: iso(enrollment.exam_finished), answered: correct + incorrect, total: correct + incorrect + notAnswered }
+            : null,
+        attempt: null,
+        by_area: [],
+        attempts: [],
+        ranking: { visible: false },
+        can_retry: false,
+        retry_blocked_reason: RESULTS_PENDING_REASON,
+        server_time: now.toISOString(),
+    };
+};
+
 export const getResults = async ({ user, slug }) => {
     const now = new Date();
     const simulacrum = await findLight(slug);
     let enrollment = await UserSimulacrumModel.findOne({ user_id: user._id, simulacrum_id: simulacrum._id }).lean().exec();
 
-    const publicResults = simulacrum.public_results !== false;
+    // Programado: de todos o de nadie hasta publicar (solo `public_results === true` cuenta). Resto: regla historica.
+    const scheduled = isScheduled(simulacrum);
+    const publicResults = resultsPublished(simulacrum);
     if (!enrollment && !publicResults) {
         throw ApiError.notFound('Los resultados de este simulacro son solo para sus participantes.');
     }
@@ -701,6 +858,10 @@ export const getResults = async ({ user, slug }) => {
             enrollment = await backfillScore({ simulacrum: await loadFull(simulacrum._id), enrollment });
         }
     }
+
+    // Programado sin publicar: ni el puntaje propio ni el ranking. Solo se confirma que el examen quedo registrado.
+    // (La calificacion perezosa de arriba ya corrio: el intento queda cerrado y calificado aunque no se muestre.)
+    if (scheduled && !publicResults) return deferredResults({ simulacrum, enrollment, now });
 
     // La tabla es publica si el simulacro lo es; si no, se publica al cerrarlo (solo para participantes).
     const rankingVisible = publicResults || (Boolean(enrollment) && simulacrum.finished === true);
@@ -743,6 +904,9 @@ export const getResults = async ({ user, slug }) => {
         ranking,
         can_retry: blocked === null,
         retry_blocked_reason: enrollment ? blocked : null,
+        results_published: true,
+        results_at: iso(resultsAt(simulacrum)),
+        absent: enrollment?.ausent === true,
         server_time: now.toISOString(),
     };
 };
@@ -764,8 +928,13 @@ export const getSolucionario = async ({ user, slug, area }) => {
         // Con un intento abierto el solucionario se cierra: tener las respuestas a la vista mientras se rinde no mediria nada.
         if (enrollment.finished !== true) throw ApiError.forbidden('El solucionario se habilita cuando termines tu intento.');
         if (settings.limits.solucionarioRequiresPlan && !isPremium(user, now)) throw ApiError.subscriptionRequired('Necesitas una suscripción activa para ver el solucionario.', { backSlug: simulacrum.slug });
-        // En un evento en curso, quien termina antes no puede pasarles las respuestas a los demas.
-        if (simulacrum.automatic && simulacrumStatus(simulacrum, now) !== 'finished') {
+        // Con las respuestas correctas a la vista cada quien calcularia su puntaje: en un programado el solucionario
+        // se abre al publicar los resultados (D7), y nunca antes de que cierre la ventana (nadie le pasa las
+        // respuestas a quien aun rinde). En un evento `automatic` sin fechas, al cerrar.
+        if (isScheduled(simulacrum)) {
+            if (!resultsPublished(simulacrum)) throw ApiError.forbidden('El solucionario se habilita cuando se publiquen los resultados.');
+            if (getPhase(simulacrum, now) !== PHASES.FINISHED) throw ApiError.forbidden('El solucionario se habilita cuando cierre el simulacro.');
+        } else if (simulacrum.automatic && simulacrumStatus(simulacrum, now) !== 'finished') {
             throw ApiError.forbidden('El solucionario se habilita cuando cierre el simulacro.');
         }
         answers = enrollment.answers ?? {};

@@ -23,7 +23,7 @@ const corsOptions = {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     // X-Edk-Client y X-Edk-Client-Secret NO van aqui a proposito: solo los envia el servidor
     // de Next, nunca un navegador, asi que el preflight de quien intente mandarlos debe fallar.
-    allowedHeaders: ['Authorization', 'Content-Type', 'X-App-Version', 'X-Request-Id', 'X-Device-Name', 'X-Device-Platform'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-App-Version', 'X-Request-Id', 'X-Device-Name', 'X-Device-Platform', 'X-Exam-Session'],
     exposedHeaders: ['X-Request-Id', 'Retry-After', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset', 'Date'],
     maxAge: 600,
 };

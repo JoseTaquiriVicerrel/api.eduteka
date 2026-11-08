@@ -26,9 +26,20 @@ describe('simulacros: resultados, ranking, reintentos y solucionario', () => {
         await api('post', `/${slug}/inscribirme`, user, { fullname, dni: '12345678' }).expect(201);
         return user;
     };
+    /** Inscribe en un evento en vivo: se inscribe "antes" (ventana al futuro, contrato D8) y se restaura. */
+    const enrollBeforeWindow = async (slug) => {
+        const original = await db('simulacrums').findOne({ slug }, { projection: { start_date: 1, end_date: 1 } });
+        const future = Date.now() + 10 * 3_600_000;
+        await db('simulacrums').updateOne({ slug }, { $set: { start_date: new Date(future), end_date: new Date(future + 3_600_000) } });
+        try {
+            return await enroll(slug);
+        } finally {
+            await db('simulacrums').updateOne({ slug }, { $set: { start_date: original.start_date, end_date: original.end_date } });
+        }
+    };
     /** Inscribe, rinde y finaliza. Devuelve { user, attemptId, summary }. */
-    const take = async (slug, answers, fullname) => {
-        const user = await enroll(slug, fullname);
+    const take = async (slug, answers, fullname, { early = false } = {}) => {
+        const user = early ? await enrollBeforeWindow(slug) : await enroll(slug, fullname);
         const started = (await api('post', `/${slug}/iniciar`, user).expect(200)).body.data;
         if (Object.keys(answers).length) await api('put', `/intentos/${started.attempt_id}/respuestas`, user, { answers }).expect(200);
         const summary = (await api('post', `/intentos/${started.attempt_id}/finalizar`, user, {}).expect(200)).body.data;
@@ -301,7 +312,7 @@ describe('simulacros: resultados, ranking, reintentos y solucionario', () => {
 
     describe('eventos con ventana global', () => {
         it('flujo completo dentro de la ventana: inscribirse, rendir, finalizar y ver el ranking', async () => {
-            const { user, summary } = await take('evento-vivo', { a1: 'A', a2: 'B', l1: 'C' });
+            const { user, summary } = await take('evento-vivo', { a1: 'A', a2: 'B', l1: 'C' }, undefined, { early: true });
             assert.equal(summary.score, 12);
             const res = await get('/evento-vivo/resultados', user).expect(200);
             assert.equal(res.body.data.simulacrum.status, 'live');
@@ -349,7 +360,7 @@ describe('simulacros: resultados, ranking, reintentos y solucionario', () => {
         });
 
         it('en un evento en curso no se abre aunque ya hayas terminado (no pasar las respuestas a los demas)', async () => {
-            const { user } = await take('evento-vivo', { a1: 'A' });
+            const { user } = await take('evento-vivo', { a1: 'A' }, undefined, { early: true });
             const res = await get('/evento-vivo/solucionario', user).expect(403);
             assert.match(res.body.error.message, /cierre el simulacro/);
 

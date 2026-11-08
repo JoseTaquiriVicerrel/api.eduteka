@@ -181,11 +181,11 @@ if (isProduction) {
         warnings.push('MONOLITH_URL sin definir: el puente de sesion de la web (POST /auth/web-exchange) queda apagado');
     }
     if (parseTrustProxy() === false) {
-        warnings.push('TRUST_PROXY=false: tras Nginx/Cloudflare, req.ip sera la del proxy y el rate limit por IP se vuelve global (usa TRUST_PROXY=1)');
+        warnings.push('TRUST_PROXY=false: tras Nginx/Cloudflare, req.ip sera la del proxy y el rate limit por IP se vuelve global (usa TRUST_PROXY=loopback)');
     }
     const listen = str('LISTEN_HOST', null);
     if (!['127.0.0.1', '::1', 'localhost'].includes(listen)) {
-        warnings.push(`LISTEN_HOST=${listen ?? '(vacio)'}: el puerto queda expuesto sin pasar por el proxy; con TRUST_PROXY=1 se podria falsear X-Forwarded-For (usa 127.0.0.1)`);
+        warnings.push(`LISTEN_HOST=${listen ?? '(vacio)'}: el puerto queda expuesto sin pasar por el proxy; quien llegue directo se saltaria el proxy y, con TRUST_PROXY, podria falsear X-Forwarded-For (usa 127.0.0.1)`);
     }
     for (const warning of warnings) console.warn(`[config] ADVERTENCIA: ${warning}`);
 }
@@ -283,6 +283,13 @@ const settings = Object.freeze({
         // Holgura para guardar la ultima respuesta: la app corta en end_exam con la hora del
         // servidor, pero la peticion tarda en llegar.
         simulacrumAnswerGraceSeconds: int('SIMULACRUM_ANSWER_GRACE_SECONDS', 5, { min: 0, max: 60 }),
+    }),
+
+    // Tiempo real de los simulacros programados (Socket.IO). Ver docs/spec-simulacros-en-vivo-1-api.md §5.
+    realtime: Object.freeze({
+        enabled: bool('REALTIME_ENABLED', true),
+        path: str('REALTIME_PATH', '/api/v1/realtime'),
+        maxConnectionsPerUser: int('REALTIME_MAX_CONNECTIONS_PER_USER', 5, { min: 1, max: 20 }),
     }),
 
     rateLimit: Object.freeze({

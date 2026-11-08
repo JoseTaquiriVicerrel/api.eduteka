@@ -49,7 +49,16 @@ const userSimulacrumSchema = new mongoose.Schema({
   // Antes el ingreso se deducia de `Simulacrum.price`, que es el precio vigente
   // y no el historico: al cambiarlo se reescribian las ventas de meses ya
   // cerrados. 0 = inscripcion gratuita.
-  amount_paid: { type: Number, default: 0 }
+  amount_paid: { type: Number, default: 0 },
+  // Inscrito aprobado que nunca abrio el examen; lo marca el cierre de la ventana (monolito).
+  ausent: Boolean,
+  // Bloqueo del examen en curso a un solo dispositivo (contrato 4.1).
+  exam_session: {
+    id: String,
+    client: String,
+    claimed_at: Date,
+    last_seen_at: Date,
+  },
 }, {
     timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
     versionKey: false
@@ -62,5 +71,10 @@ userSimulacrumSchema.index({ created_at: -1, state: 1, amount_paid: 1 });
 // (simulacro, usuario) del flujo de inscripcion y examen: no habia indice por
 // usuario.
 userSimulacrumSchema.index({ user_id: 1, simulacrum_id: 1 });
+
+// Inscritos de un simulacro (`registered_count` de la ficha, GET /simulacros/:slug): countDocuments por
+// (simulacro, aprobada). Sin este indice recorre toda la coleccion. La API no crea indices: lo crea el
+// monolito (ver docs/cambios-esquema-sugerencias-y-inscritos.md).
+userSimulacrumSchema.index({ simulacrum_id: 1, state: 1 });
 
 export default userSimulacrumSchema;

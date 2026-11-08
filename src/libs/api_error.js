@@ -13,13 +13,16 @@ const CAPABILITY_MESSAGES = {
 };
 
 export class ApiError extends Error {
-    constructor(status, code, message, { details, headers } = {}) {
+    // `extra`: objeto plano que se vuelca al nivel de `code`/`message` en el cuerpo del error
+    // (p. ej. `holder`). Nunca pisa `code` ni `message` (ver envelope.js).
+    constructor(status, code, message, { details, headers, extra } = {}) {
         super(message);
         this.name = 'ApiError';
         this.status = status;
         this.code = code;
         this.details = details;
         this.headers = headers;
+        this.extra = extra;
     }
 
     static badRequest(message = 'La solicitud no es válida.') {
@@ -78,6 +81,28 @@ export class ApiError extends Error {
 
     static notFound(message = 'No se encontró el recurso solicitado.') {
         return new ApiError(404, 'NOT_FOUND', message);
+    }
+
+    // Simulacros programados (contrato §8).
+    static registrationClosed(message = 'La inscripción a este simulacro ya cerró.') {
+        return new ApiError(403, 'REGISTRATION_CLOSED', message);
+    }
+
+    static notStarted(message = 'El simulacro todavía no ha comenzado.') {
+        return new ApiError(403, 'NOT_STARTED', message);
+    }
+
+    static windowEnded(message = 'El simulacro ya terminó.') {
+        return new ApiError(403, 'WINDOW_ENDED', message);
+    }
+
+    static attemptFinished(message = 'Este intento ya terminó.') {
+        return new ApiError(409, 'ATTEMPT_ALREADY_FINISHED', message);
+    }
+
+    // `holder`: { client, last_seen_at, retry_after_seconds }; sale como `error.holder`.
+    static attemptActiveElsewhere(holder, message = 'Tu examen está abierto en otro dispositivo.') {
+        return new ApiError(409, 'ATTEMPT_ACTIVE_ELSEWHERE', message, { extra: { holder } });
     }
 
     static conflict(message = 'La operación entra en conflicto con el estado actual.') {

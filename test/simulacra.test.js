@@ -54,6 +54,21 @@ describe('simulacros', () => {
         return user;
     };
     const start = (slug, user) => api('post', `/${slug}/iniciar`, user);
+    /**
+     * Inscribe en un evento con fechas que ya no admite inscripcion (en vivo o terminado): nadie se inscribe
+     * pasada la fecha maxima (contrato D8), asi que se inscribe "antes", moviendo la ventana al futuro, y se restaura.
+     */
+    const enrolledBeforeWindow = async (slug) => {
+        const sims = db('simulacrums');
+        const original = await sims.findOne({ slug }, { projection: { start_date: 1, end_date: 1 } });
+        const future = Date.now() + 10 * 3_600_000;
+        await sims.updateOne({ slug }, { $set: { start_date: new Date(future), end_date: new Date(future + 3_600_000) } });
+        try {
+            return await enrolled(slug);
+        } finally {
+            await sims.updateOne({ slug }, { $set: { start_date: original.start_date, end_date: original.end_date } });
+        }
+    };
 
     describe('GET /simulacros', () => {
         it('es publico, oculta lo no publicado y ordena del mas reciente al mas antiguo', async () => {
@@ -431,10 +446,10 @@ describe('simulacros', () => {
             const blocked = await start('evento-proximo', early).expect(403);
             assert.match(blocked.body.error.message, /todavía no ha comenzado/);
 
-            const live = await enrolled('evento-vivo');
+            const live = await enrolledBeforeWindow('evento-vivo');
             await start('evento-vivo', live).expect(200);
 
-            const late = await enrolled('evento-cerrado');
+            const late = await enrolledBeforeWindow('evento-cerrado');
             assert.match((await start('evento-cerrado', late).expect(403)).body.error.message, /ya cerró/);
         });
 
@@ -448,7 +463,7 @@ describe('simulacros', () => {
             const { attempt_id: attemptId } = (await start('simulacro-general', user).expect(200)).body.data;
             await api('post', `/intentos/${attemptId}/finalizar`, user, {}).expect(200);
             const res = await start('simulacro-general', user).expect(409);
-            assert.equal(res.body.error.code, 'CONFLICT');
+            assert.equal(res.body.error.code, 'ATTEMPT_ALREADY_FINISHED');
         });
 
         it('si se acabo el tiempo y nadie lo cerro, se califica con lo guardado y se avisa (409)', async () => {

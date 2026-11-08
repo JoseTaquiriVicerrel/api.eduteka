@@ -14,8 +14,9 @@ export const created = (res, data) => res.status(201).json({ data });
 
 export const noContent = (res) => res.status(204).end();
 
-export const errorBody = (req, { code, message, details }) => {
-    const error = { code, message };
+export const errorBody = (req, { code, message, details, extra }) => {
+    // `extra` primero: nunca pisa `code` ni `message`.
+    const error = { ...extra, code, message };
     if (details) error.details = details;
     return { error, request_id: req.id };
 };

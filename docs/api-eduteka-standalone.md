@@ -105,9 +105,12 @@ Patrón por módulo: `routes → controller (delgado) → service (lógica) → 
 |---|---|---|
 | 400 | `BAD_REQUEST` | JSON inválido, petición mal formada |
 | 401 | `UNAUTHENTICATED` | Sin token / expirado (el cliente hace refresh) |
+| 403 | `REGISTRATION_CLOSED`, `NOT_STARTED`, `WINDOW_ENDED` | Simulacro programado: inscripción cerrada, aún no empieza, ya terminó (§6.5) |
 | 403 | `FORBIDDEN`, `CAPABILITY_REQUIRED`, `SUBSCRIPTION_REQUIRED`, `INSTITUTION_RESTRICTED`, `EMAIL_NOT_VERIFIED`, `ACCOUNT_DISABLED` | Sin permiso |
 | 404 | `NOT_FOUND` | Inexistente (también cuando el recurso es de otro usuario) |
-| 409 | `CONFLICT` | Estado incompatible (intento ya finalizado, correo ya registrado) |
+| 409 | `CONFLICT` | Estado incompatible (correo ya registrado, simulacro sin duración…) |
+| 409 | `ATTEMPT_ALREADY_FINISHED` | Iniciar, guardar, finalizar o latido de un intento de simulacro ya cerrado (§6.5); el cliente lo trata como éxito |
+| 409 | `ATTEMPT_ACTIVE_ELSEWHERE` | El examen está abierto en otro dispositivo; lleva `error.holder` (§6.5) |
 | 422 | `VALIDATION_ERROR` | Falla de esquema (`details[]`) |
 | 426 | `APP_UPDATE_REQUIRED` | Cliente obsoleto |
 | 429 | `TOO_MANY_REQUESTS` | Rate limit (`Retry-After`) |
@@ -305,10 +308,10 @@ Leyenda: 🌐 público · 🔑 Bearer · 💎 Bearer + suscripción activa.
 |---|---|---|
 | 🌐 | `GET /practicas-area/temas?area=` | Temas disponibles |
 | 🔑 | `GET /practicas-area/preguntas?area=&topic=&count=&difficulty=` | Genera práctica al vuelo. Estudiante: sin respuestas. Profesor: con respuestas (`answers_visible:true`) |
-| 🔑 `take_practice` | `POST /practicas-area/finalizar` | `{area, topic, question_ids[], answers, time}` → corrige y guarda `PracticeAttempt` |
+| 🔑 `take_practice` | `POST /practicas-area/finalizar` | `{area, topic, question_ids[], answers, time}` → corrige y guarda `PracticeAttempt`. La respuesta agrega `suggestions: {continue[], explore[]}` (qué practicar después; ver `docs/cambios-esquema-sugerencias-y-inscritos.md`) |
 | 🌐 | `GET /practicas?area=&q=&page=` | Prácticas/listas publicadas |
 | 🌐 | `GET /practicas/:slug` | Detalle y preguntas (con respuestas solo si `view_answers_directly`) |
-| 🔑 `take_practice` | `POST /practicas/:slug/finalizar` | `{answers, time}` → corrección |
+| 🔑 `take_practice` | `POST /practicas/:slug/finalizar` | `{answers, time}` → corrección, con `suggestions: {continue[], explore[]}` igual que arriba |
 
 Respuesta de corrección:
 ```json
@@ -334,7 +337,7 @@ Respuesta de corrección:
 | | Ruta | Descripción |
 |---|---|---|
 | 🌐 | `GET /simulacros?institution=&q=&page=` | Lista con `status: upcoming\|live\|finished` y `enrolled` si hay sesión |
-| 🌐 | `GET /simulacros/:slug` | Detalle, reglas, estructura por área, puntajes |
+| 🌐 | `GET /simulacros/:slug` | Detalle, reglas, estructura por área, puntajes y `registered_count` (inscripciones aprobadas; caché 60 s) |
 | 🔑 | `POST /simulacros/:slug/inscribirme` | `{fullname, area, career}` (`dni` obsoleto: se acepta y se ignora, no se guarda) (+ `screenshot` multipart si el simulacro es de pago) |
 | 🔑 | `POST /simulacros/:slug/iniciar` | Crea `SimulacrumAttempt`; devuelve `attempt_id`, **`start_exam`, `end_exam` (hora del servidor)**, `server_time`, preguntas sin clave |
 | 🔑 | `PUT /simulacros/intentos/:attempt_id/respuestas` | `{answers:{q:"A"}}` autoguardado, idempotente (`write`) |
@@ -346,8 +349,15 @@ Respuesta de corrección:
 **Reglas**
 - Temporizador del servidor: la app muestra `end_exam − now` corregido con `server_time`. Sobrevive a rotación y segundo plano.
 - Puntaje = `correct·score_correct + incorrect·score_incorrect + not_answered·score_not_answered`; `score_conversion` según `calification_type`.
-- Intento finalizado → `409`. Fuera de ventana `start_date..end_date` → `403 FORBIDDEN`. Un intento activo por usuario/simulacro.
-- Si `public_results:false`, los resultados se publican al cerrar el simulacro (`finished:true`).
+- Intento finalizado → `409 ATTEMPT_ALREADY_FINISHED`. Un intento activo por usuario/simulacro.
+- Si `public_results:false` (simulacro sin programar), los resultados se publican al cerrar el simulacro (`finished:true`).
+
+**Simulacros programados (en vivo)** — un simulacro es programado cuando tiene `start_date` y `end_date`; el flag `automatic` no decide nada.
+- `GET /simulacros` y `GET /simulacros/:slug` agregan `schedule` (`null` si no es programado): `{phase: registration|waiting|live|finished, registration_open, register_close_date, start_date, end_date, results_at, results_published}`. La lista agrega `meta.server_time`. `enrollment.absent` marca al inscrito que nunca abrió el examen.
+- Inscripción: solo en la fase `registration` (hasta `register_close_date`, o `start_date` si no hay); después `403 REGISTRATION_CLOSED`. Quien ya está inscrito puede llegar tarde.
+- `iniciar`: antes de `start_date` `403 NOT_STARTED`; desde `end_date` `403 WINDOW_ENDED`. `end_exam = min(inicio + duración, end_date)`; la respuesta trae `window: {end_date, allowed_seconds, duration_seconds, shortened}` (`null` en no programados y reintentos). Un reintento abierto no tiene ventana.
+- `resultados`, sin publicar: `{results_published:false, results_at, submission:{finished_at, answered, total}|null, attempt:null, ranking:{visible:false}, absent, …}`; un no participante recibe `404`. Publicados: la respuesta completa más `results_published:true` y `absent`.
+- `solucionario`: `403` hasta que los resultados estén publicados y la ventana haya cerrado.
 
 ### 6.6 Perfil, progreso y listas
 | | Ruta | Descripción |

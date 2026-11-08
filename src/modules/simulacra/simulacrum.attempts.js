@@ -21,7 +21,7 @@ const ATTEMPT_FIELDS = [
 // Lo unico que se borra al empezar un intento nuevo. El puntaje del anterior se deja
 // hasta que el nuevo termine: abrir /resultados a mitad del reintento no debe
 // calificar con cero respuestas encima del resultado anterior.
-const RESET_FIELDS = ['start_exam', 'end_exam', 'exam_finished'];
+const RESET_FIELDS = ['start_exam', 'end_exam', 'exam_finished', 'exam_session'];
 
 // En Mongo `{campo: null}` casa tambien con "ausente": el intento 1 cubre a las filas
 // anteriores a los reintentos, que no tienen el contador.

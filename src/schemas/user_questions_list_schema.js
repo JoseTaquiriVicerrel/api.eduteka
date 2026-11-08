@@ -28,4 +28,9 @@ const userQuestionsListSchema = new mongoose.Schema({
 
 userQuestionsListSchema.index({ 'suggestion.key': 1 }, { sparse: true });
 
+// Sugerencias al terminar una practica (la API las calcula en practice.suggestions.js): la siguiente de la
+// serie (key + series > N) y las mas guardadas entre las publicas. La API no crea indices: lo crea el monolito.
+userQuestionsListSchema.index({ 'suggestion.key': 1, 'suggestion.series': 1 }, { sparse: true });
+userQuestionsListSchema.index({ public: 1, favorites: -1, created_at: -1 });
+
 export default userQuestionsListSchema;
