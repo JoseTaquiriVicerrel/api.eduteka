@@ -3,8 +3,8 @@ import PracticeAttemptModel from '#Models/practice_attempt_model.js';
 import QuestionModel from '#Models/question_model.js';
 import SimulacrumModel from '#Models/simulacrum_model.js';
 import UserAnswerModel from '#Models/user_answer_model.js';
-import { DAY_MS, dayKeyOf } from '#Libs/lima_time.js';
-import { STUDENT_DAYS, buildStudentProgress } from '#Libs/progress_metrics.js';
+import { DAY_MS, dayKeyOf, startOfIsoWeek } from '#Libs/lima_time.js';
+import { STUDENT_DAYS, STUDENT_WEEKS, buildStudentProgress } from '#Libs/progress_metrics.js';
 import { listAreas } from '#Modules/catalog/catalog.service.js';
 import { accuracyOf, accuracyOverTotal, fetchGradedSimulacrumDocs, listAttempts } from './attempts.service.js';
 import { cacheProgress, getCachedProgress } from './progress.cache.js';
@@ -80,6 +80,12 @@ const studySeconds = (practiceDocs, simulacrumDocs) => {
     return practice + [...byAttempt.values()].reduce((sum, seconds) => sum + seconds, 0);
 };
 
+/** Lunes (hora de Lima) de las ultimas 12 semanas ISO, de la mas antigua a la actual: el eje de `series.week`. */
+const lastWeekStarts = (now) => {
+    const monday = startOfIsoWeek(now).getTime();
+    return Array.from({ length: STUDENT_WEEKS }, (_, i) => dayKeyOf(new Date(monday - (STUDENT_WEEKS - 1 - i) * 7 * DAY_MS)));
+};
+
 /** Ultimos 30 dias en hora de Lima (el eje que usa buildStudentProgress), de mas antiguo a hoy. */
 const lastDayKeys = (now) => Array.from({ length: STUDENT_DAYS }, (_, i) => dayKeyOf(new Date(now.getTime() - (STUDENT_DAYS - 1 - i) * DAY_MS)));
 
@@ -119,6 +125,8 @@ const shape = async (userId, now) => {
 
     const keys = lastDayKeys(now);
     const accuracySeries = progress.series.day.accuracy;
+    const { week: weekSeries } = progress.series;
+    const weekStarts = lastWeekStarts(now);
 
     const weakTopics = areaRows
         .flatMap((area) => area.topics.map((topic) => ({ area, topic })))
@@ -161,12 +169,39 @@ const shape = async (userId, now) => {
             accuracy: fraction(area.accuracy),
             coverage: area.coverage ? { done: area.coverage.done, total: area.coverage.total, pct: area.coverage.pct } : null,
             is_weakest: area.is_weakest,
+            // Respuestas corregibles del area (examenes, practicas y simulacros): la base de `accuracy`.
+            keyed: area.total_keyed,
+            // Respuestas de simulacros del area (ya incluidas en `answered`).
+            simulacro_answered: area.sim_answered,
+            // Temas de examenes y practicas, los mas respondidos primero (tope TOP_TOPICS de la
+            // libreria). `answered` es lo que muestra la web; `keyed`, las corregibles sobre las que
+            // se calcula `accuracy` (el mismo criterio que `weak_topics[].answered`). `weak` marca el
+            // tema mas flojo del area (umbral de la libreria, menor que el de weak_topics).
+            topics: area.topics.map((topic) => ({
+                topic: topic.name,
+                answered: topic.answered,
+                keyed: topic.keyed,
+                accuracy: fraction(topic.accuracy),
+                weak: topic.weak,
+            })),
+            more_topics: Math.max(0, area.topics_total - area.topics.length),
         })),
         weak_topics: weakTopics,
         trend: keys.map((date, index) => ({
             date,
             answered: progress.series.day.answered[index],
             accuracy: fraction(accuracySeries[index]),
+            // Desglose por fuente (answered = practice + simulacro).
+            practice: progress.series.day.practice[index],
+            simulacro: progress.series.day.simulacro[index],
+        })),
+        // Ultimas 12 semanas ISO (lunes de Lima), para el grafico semanal.
+        trend_weeks: weekStarts.map((weekStart, index) => ({
+            week_start: weekStart,
+            answered: weekSeries.answered[index],
+            accuracy: fraction(weekSeries.accuracy[index]),
+            practice: weekSeries.practice[index],
+            simulacro: weekSeries.simulacro[index],
         })),
         simulacra: progress.simulacros.items
             .filter((item) => item.at)
@@ -193,9 +228,13 @@ const shape = async (userId, now) => {
     };
 };
 
-/** Dashboard del usuario; cacheado 5 minutos (ver progress.cache.js). */
-export const getProgress = async (userId, now = new Date()) => {
-    const cached = await getCachedProgress(userId);
+/**
+ * Dashboard del usuario; cacheado 5 minutos (ver progress.cache.js). Con `fresh` se calcula
+ * siempre (la web: sus respuestas entran por el monolito y no invalidan el cache), pero el
+ * resultado se guarda igual para que la app aproveche el calculo reciente.
+ */
+export const getProgress = async (userId, now = new Date(), { fresh = false } = {}) => {
+    const cached = fresh ? null : await getCachedProgress(userId);
     if (cached) return cached;
 
     const result = await shape(userId, now);

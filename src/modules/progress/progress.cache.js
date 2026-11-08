@@ -3,7 +3,7 @@ import { del, getJson, setJson } from '#Libs/kv.js';
 // Cache del dashboard de progreso (/progreso): 5 minutos por usuario. Se
 // invalida al registrar respuestas o cerrar una practica desde la API, asi que
 // "Hoy" se mueve en cuanto el usuario practica; lo que escriba el monolito (la
-// web) se ve cuando vence el cache.
+// web) se ve cuando vence el cache. La propia web no lo lee (getProgress con `fresh`).
 
 export const PROGRESS_TTL_SECONDS = 5 * 60;
 
