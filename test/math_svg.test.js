@@ -68,12 +68,19 @@ describe('math_svg: TeX a partir del HTML', () => {
         assert.equal(extractFormulas('\\[ a<br>b \\]')[0].tex, 'a b');
     });
 
-    it('normaliza las tildes solo dentro de \\text{}', () => {
+    it('fuera de \\text las tildes y la micro se envuelven; dentro, la micro cierra el texto', () => {
+        assert.equal(normalizeAccents('V_{máx}'), "V_{m\\text{\\'a}x}");
+        assert.equal(normalizeAccents('C = 10 µF'), 'C = 10 \\mu F');
+        assert.equal(normalizeAccents('\\text{ µF}'), '\\text{ }\\mu\\text{F}');
+        assert.equal(normalizeAccents('\\text{µ}'), '\\text{}\\mu\\text{}');
+    });
+
+    it('normaliza las tildes dentro de \\text{}', () => {
         assert.equal(normalizeAccents('\\text{términos}'), "\\text{t\\'erminos}");
         assert.equal(normalizeAccents('\\text{año ü}'), '\\text{a\\~no \\"u}');
         assert.equal(normalizeAccents('\\text{aí}'), "\\text{a\\'{\\i}}");
-        assert.equal(normalizeAccents('\\text{a}+é'), '\\text{a}+é', 'fuera de \\text no se toca');
-        assert.equal(normalizeAccents('\\text{a {é} b} é'), "\\text{a {\\'e} b} é", 'llaves anidadas');
+        assert.equal(normalizeAccents('\\text{a}+é'), "\\text{a}+\\text{\\'e}", 'fuera de \\text se envuelve');
+        assert.equal(normalizeAccents('\\text{a {é} b} é'), "\\text{a {\\'e} b} \\text{\\'e}", 'llaves anidadas');
         assert.equal(normalizeAccents('x+y'), 'x+y');
         assert.equal(normalizeAccents('\\text{é'), '\\text{é', 'llave sin cerrar: se deja igual');
     });
@@ -189,5 +196,42 @@ describe('math_svg: replaceMath', () => {
             { tex: 'b', mode: 'inline-display' },
             { tex: 'c', mode: 'inline' },
         ]);
+    });
+});
+
+describe('math_svg: entornos sin delimitadores', () => {
+    // HTML real del banco (simulacro de Quimica): el array no lleva \[ \] y la web lo pinta igual.
+    const bare = '<p>Datos:</p><p>\\begin{array} {|c|c|}\\hline Compuesto&amp;&nbsp;\\ce{ZnS}&amp; \\ce{SO2} \\\\ \\hline PM\\;( g/mol ) &amp; 97 &amp; 64 \\\\ \\hline \\end{array}</p>';
+
+    it('encuentra un \\begin{array} suelto y lo trata como bloque', () => {
+        const found = extractFormulas(bare);
+        assert.equal(found.length, 1);
+        assert.ok(found[0].tex.startsWith('\\begin{array}') && found[0].tex.endsWith('\\end{array}'));
+        assert.ok(found[0].tex.includes('Compuesto& \\ce{ZnS}& \\ce{SO2}'), 'entidades decodificadas');
+        assert.equal(modeOf(bare), 'block');
+    });
+
+    it('lo sustituye por una <img> y deja el resto del HTML', async () => {
+        const out = await replaceMath(bare, async ({ tex, mode }) => ({ hash: mathHash({ tex, mode }), w: '1ex', h: '1ex', valign: '0' }));
+        assert.equal(out.converted, 1);
+        assert.ok(out.html.startsWith('<p>Datos:</p><p><img class="math"'));
+        assert.ok(!out.html.includes('\\begin{array}</p>'));
+    });
+
+    it('un array dentro de \\[ \\] sigue siendo una sola formula', () => {
+        const html = '<p>\\[\\begin{array}{c}a\\end{array}\\]</p>';
+        assert.equal(extractFormulas(html).length, 1);
+    });
+
+    it('anida entornos del mismo nombre y mezcla con otras formulas', () => {
+        const html = '\\(x\\) \\begin{array}{c}\\begin{array}{c}a\\end{array}\\end{array} y \\(z\\)';
+        assert.deepEqual(extractFormulas(html).map((f) => f.delimiter), ['\\(', '\\begin{array}', '\\(']);
+    });
+
+    it('ignora entornos sin cierre, escapados, en atributos o en <code>', () => {
+        assert.equal(extractFormulas('\\begin{array}{c}a').length, 0);
+        assert.equal(extractFormulas('\\\\begin{array}a\\end{array}').length, 0);
+        assert.equal(extractFormulas('<img alt="\\begin{array}a\\end{array}">').length, 0);
+        assert.equal(extractFormulas('<code>\\begin{array}a\\end{array}</code>').length, 0);
     });
 });

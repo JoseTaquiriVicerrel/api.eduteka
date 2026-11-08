@@ -27,6 +27,32 @@ const TAG = /<[^>]*>/g;
 // Etiquetas que cortan la "linea" visible (para decidir bloque o en linea).
 const LINE_BREAK_TAG = /<\/?(?:br|p|div|li|ul|ol|tr|td|th|table|h[1-6]|blockquote)\b[^>]*>/gi;
 
+// Entornos que el banco escribe SIN delimitadores (`<p>\begin{array}...\end{array}</p>`). La web
+// los pinta porque MathJax procesa `\begin{..}` suelto; aqui hay que buscarlos aparte o la formula
+// llega a la app como texto plano. Se tratan como formula de bloque (la regla bloque/linea sigue igual).
+const BARE_ENV_OPEN = /\\begin\{(array|[bpvBV]?matrix|smallmatrix|cases|aligned?\*?|gathered?\*?|split|eqnarray\*?|equation\*?|multline\*?)\}/g;
+
+/** Fin (indice tras `\end{name}`) del entorno abierto en `from`, con anidacion del mismo nombre; -1 si no cierra. */
+const envEnd = (html, name, from) => {
+    const open = `\\begin{${name}}`;
+    const close = `\\end{${name}}`;
+    let depth = 1;
+    let cursor = from;
+    while (depth > 0) {
+        const nextClose = html.indexOf(close, cursor);
+        if (nextClose === -1) return -1;
+        const nextOpen = html.indexOf(open, cursor);
+        if (nextOpen !== -1 && nextOpen < nextClose) { depth += 1; cursor = nextOpen + open.length; } else { depth -= 1; cursor = nextClose + close.length; }
+    }
+    return cursor;
+};
+
+const isEscaped = (html, index) => {
+    let slashes = 0;
+    while (index - 1 - slashes >= 0 && html[index - 1 - slashes] === '\\') slashes += 1;
+    return slashes % 2 === 1;
+};
+
 const NAMED_ENTITIES = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'", nbsp: ' ' };
 
 /** Decodifica las entidades que el banco deja dentro del TeX. `&nbsp;` pasa a espacio normal. */
@@ -47,6 +73,11 @@ const ACCENTS = {
 const ACCENT_CHARS = /[áéíóúÁÉÍÓÚñÑüÜ]/g;
 const TEXT_COMMAND = /\\(?:text|mbox|textrm|textit|textbf|mathrm)\s*\{/g;
 
+/** Tramo en modo matematico: tilde -> \text{acento}, micro -> \mu. */
+const outsideText = (fragment) => fragment
+    .replace(ACCENT_CHARS, (char) => `\\text{${ACCENTS[char]}}`)
+    .replace(MICRO_CHARS, '\\mu ');
+
 /** Indice del `}` que cierra la llave abierta justo antes de `from`, o -1. */
 const closingBrace = (tex, from) => {
     let depth = 1;
@@ -59,10 +90,18 @@ const closingBrace = (tex, from) => {
     return -1;
 };
 
-/** Sustituye las tildes por su acento TeX, solo dentro de \text{...} (en modo matematico `\'` es otra cosa). */
+// "µ" (U+00B5, signo micro del teclado) y "μ" (U+03BC) tampoco tienen glifo util en la fuente de
+// MathJax dentro de \text{}: se pasan a \mu (la web las pinta bien porque el navegador usa su fuente).
+const MICRO_CHARS = /[µμ]/g;
+const NEEDS_NORMALIZING = /[áéíóúÁÉÍÓÚñÑüÜµμ]/;
+
+/**
+ * Deja el TeX sin letras que MathJax dibujaria como <text> (dependen de la fuente del dispositivo):
+ * dentro de \text{...} las tildes pasan a su acento TeX y la micro a `}\mu\text{`; fuera de \text
+ * (modo matematico, donde `\'` es otra cosa) cada tilde se envuelve en \text{acento} y la micro pasa a \mu.
+ */
 export const normalizeAccents = (tex) => {
-    if (!ACCENT_CHARS.test(tex)) return tex;
-    ACCENT_CHARS.lastIndex = 0;
+    if (!NEEDS_NORMALIZING.test(tex)) return tex;
     let result = '';
     let cursor = 0;
     TEXT_COMMAND.lastIndex = 0;
@@ -71,12 +110,13 @@ export const normalizeAccents = (tex) => {
         const start = match.index + match[0].length;
         if (start < cursor) continue;
         const end = closingBrace(tex, start);
-        if (end < 0) break;
-        result += tex.slice(cursor, start) + tex.slice(start, end).replace(ACCENT_CHARS, (char) => ACCENTS[char]);
+        if (end < 0) return result + tex.slice(cursor); // llave sin cerrar: TeX roto, se deja igual
+        result += outsideText(tex.slice(cursor, start))
+            + tex.slice(start, end).replace(ACCENT_CHARS, (char) => ACCENTS[char]).replace(MICRO_CHARS, '}\\mu\\text{');
         cursor = end;
         TEXT_COMMAND.lastIndex = end;
     }
-    return result + tex.slice(cursor);
+    return result + outsideText(tex.slice(cursor));
 };
 
 /** TeX limpio a partir del contenido crudo de un delimitador: sin etiquetas, sin entidades, con tildes normalizadas. */
@@ -118,6 +158,23 @@ export const extractFormulas = (html) => {
                 from = index + 1;
             }
             if (index !== -1 && (!best || index < best.index)) best = { index, delimiter };
+        }
+
+        // Entorno suelto: solo cuenta si empieza antes que el siguiente delimitador (si va dentro de \[ \] ya lo cubre ese).
+        BARE_ENV_OPEN.lastIndex = cursor;
+        let env;
+        while ((env = BARE_ENV_OPEN.exec(html)) !== null) {
+            if (!isEscaped(html, env.index) && !inRanges(ranges, env.index) && !inRanges(tags, env.index)) break;
+        }
+        if (env && (!best || env.index < best.index)) {
+            const end = envEnd(html, env[1], env.index + env[0].length);
+            if (end === -1) { cursor = env.index + env[0].length; continue; }
+            const tex = texFromHtml(html.slice(env.index, end));
+            if (tex.length <= MAX_TEX_LENGTH) {
+                formulas.push({ start: env.index, end, raw: html.slice(env.index, end), tex, delimiter: `\\begin{${env[1]}}`, display: true });
+            }
+            cursor = end;
+            continue;
         }
         if (!best) break;
 

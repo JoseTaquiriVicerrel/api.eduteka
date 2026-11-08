@@ -13,15 +13,18 @@ import { connect, disconnect, endProgress, parseArgs, parseSources, progress } f
 //   node scripts/warm_math_cache.js [--source=questions,blocks,exams,simulacra]
 //        [--limit=N]            documentos por fuente (para probar)
 //        [--slug=<simulacro>]   solo ese simulacro (para precalentarlo al publicarlo)
+//        [--exam=<id>]          solo ese examen (para precalentarlo al verificarlo)
 //        [--dry-run]            solo cuenta, no convierte ni escribe
 //        [--failures=ruta.csv]  guarda todas las fallidas en un CSV
 //        [--strict]             codigo de salida 1 si alguna fallo
 
-const args = parseArgs(process.argv.slice(2), ['source', 'limit', 'slug', 'dry-run', 'failures', 'strict']);
+const args = parseArgs(process.argv.slice(2), ['source', 'limit', 'slug', 'exam', 'dry-run', 'failures', 'strict']);
 const sources = parseSources(args.source);
 const limit = args.limit ? Number.parseInt(args.limit, 10) : 0;
 if (args.limit && !(limit > 0)) throw new Error('--limit debe ser un entero positivo');
 
+const exam = args.exam && args.exam !== true ? args.exam : null;
+if (args.exam && !exam) throw new Error('--exam necesita un valor: --exam=<id>');
 const slug = args.slug && args.slug !== true ? args.slug : null;
 if (args.slug && !slug) throw new Error('--slug necesita un valor: --slug=mi-simulacro');
 const csvCell = (value) => `"${String(value).replace(/"/g, '""').replace(/\r?\n/g, ' ')}"`;
@@ -36,7 +39,7 @@ try {
     console.log(`Fuentes: ${sources.join(', ')}${limit ? ` (maximo ${limit} documentos por fuente)` : ''}`);
 
     const scanStart = Date.now();
-    const scan = await collectFormulas({ sources: slug ? ['simulacra'] : sources, limit, slug, onDocument: (source, n) => n % 200 === 0 && progress(`Leyendo ${source}... ${n} documentos`) });
+    const scan = await collectFormulas({ sources: slug ? ['simulacra'] : exam ? ['exams'] : sources, limit, slug, exam, onDocument: (source, n) => n % 200 === 0 && progress(`Leyendo ${source}... ${n} documentos`) });
     endProgress();
     const { formulas } = scan;
     console.log(`\nDocumentos: ${scan.documents} | fragmentos HTML: ${scan.fragments} | formulas: ${scan.occurrences} (${formulas.size} distintas) | ${((Date.now() - scanStart) / 1000).toFixed(1)} s`);

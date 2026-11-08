@@ -39,7 +39,7 @@ const EXTRACTORS = {
 const QUERIES = {
     questions: () => QuestionModel.find(practicableFilter(), { question: 1, resolution: 1, options: 1, dependence: 1 }),
     blocks: () => BlockModel.find({}, { text: 1, texto: 1 }),
-    exams: () => ExamModel.find({ verified: true }, { general_items: 1, areas: 1 }),
+    exams: ({ exam } = {}) => ExamModel.find({ verified: true, ...(exam ? { _id: exam } : {}) }, { general_items: 1, areas: 1 }),
     simulacra: ({ slug } = {}) => SimulacrumModel.find(
         { verified: true, state: true, ...(slug ? { slug } : {}) },
         { general_items: 1, areas: 1, prospect: 1, general: 1 },
@@ -74,14 +74,14 @@ export const scanFormulas = (html) => extractFormulas(html).map((formula) => ({ 
  * Recorre las fuentes y reune las formulas DISTINTAS (mismo TeX y modo = una sola).
  * @returns {Promise<{ formulas: Map<string, { tex, mode, refs: number, first: string }>, documents: number, fragments: number, occurrences: number }>}
  */
-export const collectFormulas = async ({ sources = SOURCES, limit = 0, slug = null, onDocument } = {}) => {
+export const collectFormulas = async ({ sources = SOURCES, limit = 0, slug = null, exam = null, onDocument } = {}) => {
     const formulas = new Map();
     let documents = 0;
     let fragments = 0;
     let occurrences = 0;
 
     for (const source of sources) {
-        let query = QUERIES[source]({ slug }).lean();
+        let query = QUERIES[source]({ slug, exam }).lean();
         if (limit > 0) query = query.limit(limit);
 
         for await (const doc of query.cursor()) {
