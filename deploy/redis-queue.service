@@ -1,0 +1,36 @@
+# Segunda instancia de Redis, solo para colas (BullMQ). Ver deploy/redis-queue.conf.
+#
+#   sudo mkdir -p /var/lib/redis-queue && sudo chown redis:redis /var/lib/redis-queue
+#   sudo cp deploy/redis-queue.conf /etc/redis/redis-queue.conf    (y cambiar requirepass)
+#   sudo chown redis:redis /etc/redis/redis-queue.conf && sudo chmod 640 /etc/redis/redis-queue.conf
+#   sudo cp deploy/redis-queue.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now redis-queue
+#   redis-cli -p 6380 -a "$QUEUE_REDIS_PASSWORD" CONFIG GET maxmemory-policy    # -> noeviction
+#
+# ExecStart usa el binario de Redis del sistema. Si el droplet tiene Redis Stack, el binario esta en
+# /opt/redis-stack/bin/redis-server: cualquiera sirve (esta instancia no carga modulos).
+
+[Unit]
+Description=Redis de colas de Eduteka (BullMQ, puerto 6380)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=redis
+Group=redis
+ExecStart=/usr/bin/redis-server /etc/redis/redis-queue.conf
+# Sin ExecStop: con SIGTERM Redis guarda (AOF/RDB) y sale ordenadamente.
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+LimitNOFILE=10032
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/redis-queue
+
+[Install]
+WantedBy=multi-user.target

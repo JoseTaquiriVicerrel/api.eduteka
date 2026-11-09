@@ -31,6 +31,10 @@ BRANCH="${BRANCH:-main}"
 # Llave de SOLO LECTURA (Deploy key de GitHub), distinta de la que usa Actions para entrar aqui.
 export GIT_SSH_COMMAND="ssh -i ${GITHUB_KEY:-$HOME/.ssh/github_deploy} -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes"
 SERVICE="${SERVICE:-eduteka-api}"
+# Procesos de fondo del mismo codigo (puerto local de /health de cada uno). Solo se reinician los
+# que estan habilitados en este servidor (`systemctl is-enabled`); los demas se ignoran, asi el
+# script sirve igual antes y despues de instalar cada unidad.
+EXTRA_SERVICES="${EXTRA_SERVICES:-eduteka-worker:3003}"
 LIVE_PORT="${LIVE_PORT:-3000}"
 SMOKE_PORT="${SMOKE_PORT:-3101}"
 KEEP="${KEEP:-5}"
@@ -64,6 +68,31 @@ wait_healthy() { # puerto, segundos
     sleep 1
   done
   return 1
+}
+
+wait_process_healthy() { # puerto, segundos  (procesos de fondo: GET /health en 127.0.0.1)
+  local port="$1" seconds="$2" i
+  for i in $(seq 1 "$seconds"); do
+    if curl -fsS --max-time 3 "http://127.0.0.1:$port/health" 2>/dev/null | grep -q '"status":"ok"'; then return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
+# Reinicia los procesos de fondo habilitados y comprueba su /health. Devuelve 1 si alguno no responde.
+restart_extras() {
+  local entry unit port failed=0
+  for entry in $EXTRA_SERVICES; do
+    unit="${entry%%:*}"; port="${entry##*:}"
+    systemctl is-enabled --quiet "$unit" 2>/dev/null || continue
+    sudo -n /usr/bin/systemctl restart "$unit"
+    if ! wait_process_healthy "$port" 30; then
+      echo "El proceso $unit no responde en 127.0.0.1:$port/health." >&2
+      journalctl -u "$unit" -n 30 --no-pager >&2 || true
+      failed=1
+    fi
+  done
+  return "$failed"
 }
 
 activate() { # directorio
@@ -115,14 +144,19 @@ activate "$DIR"
 SWITCHED=1
 sudo -n /usr/bin/systemctl restart "$SERVICE"
 
-if ! wait_healthy "$LIVE_PORT" 30; then
+API_OK=1
+wait_healthy "$LIVE_PORT" 30 || API_OK=0
+EXTRAS_OK=1
+if [ "$API_OK" -eq 1 ]; then restart_extras || EXTRAS_OK=0; fi
+
+if [ "$API_OK" -eq 0 ] || [ "$EXTRAS_OK" -eq 0 ]; then
   echo "La version activa no responde: volviendo a la anterior." >&2
-  journalctl -u "$SERVICE" -n 30 --no-pager >&2 || true
+  [ "$API_OK" -eq 0 ] && { journalctl -u "$SERVICE" -n 30 --no-pager >&2 || true; }
   if [ -n "$PREVIOUS" ] && [ -d "$PREVIOUS" ]; then
     activate "$PREVIOUS"
     sudo -n /usr/bin/systemctl restart "$SERVICE"
-    if wait_healthy "$LIVE_PORT" 30; then echo "Vuelta atras correcta a $(basename "$PREVIOUS")." >&2
-    else echo "ATENCION: la version anterior tampoco responde." >&2; fi
+    if wait_healthy "$LIVE_PORT" 30 && restart_extras; then echo "Vuelta atras correcta a $(basename "$PREVIOUS")." >&2
+    else echo "ATENCION: la version anterior tampoco responde del todo." >&2; fi
   fi
   exit 1
 fi

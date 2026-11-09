@@ -1,4 +1,6 @@
 # /etc/sudoers.d/eduteka-deploy   (instalar con: sudo visudo -cf deploy/sudoers-deploy && sudo install -m 440 deploy/sudoers-deploy /etc/sudoers.d/eduteka-deploy)
 #
-# El usuario `deploy` solo puede reiniciar el servicio de la API; nada mas con privilegios.
+# El usuario `deploy` solo puede reiniciar los servicios de la API (HTTP y procesos de fondo);
+# nada mas con privilegios.
 deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart eduteka-api
+deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart eduteka-worker

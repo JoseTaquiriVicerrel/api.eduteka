@@ -38,6 +38,9 @@ export const BASE_ENV = {
     PAYMENT_YAPE_NUMBER: '',
     PAYMENT_YAPE_HOLDER: '',
     PAYMENT_YAPE_QR_URL: '',
+    // Colas apagadas y objetos en disco, pase lo que pase en el .env local.
+    QUEUE_ENABLED: 'false',
+    STORAGE_DRIVER: 'disk',
     PAYMENT_PLIN_NUMBER: '',
     PAYMENT_PLIN_HOLDER: '',
     PAYMENT_PLIN_QR_URL: '',

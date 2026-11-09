@@ -140,6 +140,15 @@ if (isProduction && paymentAiProvider === 'memory') problems.push('PAYMENT_AI_PR
 
 const jwtSecret = required('JWT_SECRET', { minLength: 32 });
 
+// --- Colas y almacenamiento de objetos ------------------------------------------------
+// Ver los bloques `queue` y `objectStorage` mas abajo.
+const queueEnabled = bool('QUEUE_ENABLED', false);
+if (queueEnabled && isProduction && !str('QUEUE_REDIS_PASSWORD', null)) {
+    problems.push('QUEUE_ENABLED=true en produccion requiere QUEUE_REDIS_PASSWORD (deploy/redis-queue.conf)');
+}
+const storageDriver = str('STORAGE_DRIVER', 'disk');
+if (!['disk', 'r2'].includes(storageDriver)) problems.push('STORAGE_DRIVER debe ser disk o r2');
+
 // --- Comprobaciones de produccion ---------------------------------------------------
 // JWT_PRIVATE_KEY firma la cookie de sesion del monolito: reutilizarla haria valer un token de
 // una aplicacion en la otra. Es un error. TRUST_PROXY y LISTEN_HOST dependen de la
@@ -296,6 +305,41 @@ const settings = Object.freeze({
     // simulacro se verifica o cambia y la API convierte sus formulas antes de que lo abra un estudiante.
     mathPrewarm: Object.freeze({
         enabled: bool('MATH_PREWARM_ENABLED', true),
+    }),
+
+    // Colas (BullMQ) en una instancia de Redis APARTE de la cache, con `noeviction` (deploy/redis-queue.conf).
+    // Apagadas por defecto: la API funciona igual sin ellas hasta que una fase las necesite. Los
+    // procesos de fondo (src/worker.js) exigen `QUEUE_ENABLED=true` y una conexion real.
+    queue: Object.freeze({
+        enabled: queueEnabled,
+        host: str('QUEUE_REDIS_HOST', '127.0.0.1'),
+        port: int('QUEUE_REDIS_PORT', 6380, { min: 1, max: 65535 }),
+        username: str('QUEUE_REDIS_USERNAME', null),
+        password: str('QUEUE_REDIS_PASSWORD', null),
+        // Prefijo de todas las claves de BullMQ. No usar `keyPrefix` de ioredis: es incompatible.
+        prefix: str('QUEUE_PREFIX', 'edk:q'),
+    }),
+
+    // Procesos de fondo (src/worker.js): salud en un puerto local para el monitor y el despliegue.
+    worker: Object.freeze({
+        healthPort: int('WORKER_HEALTH_PORT', 3003, { min: 1, max: 65535 }),
+        concurrency: int('WORKER_CONCURRENCY', 4, { min: 1, max: 64 }),
+    }),
+
+    // Almacenamiento de objetos: disco local (hoy) o Cloudflare R2 (compatible con S3).
+    // Ver #Libs/object_storage.js.
+    objectStorage: Object.freeze({
+        driver: storageDriver,
+        // Raiz del driver de disco. Aparte de los avatares: aqui solo hay objetos con clave.
+        diskDir: path.resolve(str('OBJECT_STORAGE_DIR', path.join(str('STORAGE_DIR', './storage'), 'objects'))),
+        r2: Object.freeze({
+            accountId: storageDriver === 'r2' ? required('R2_ACCOUNT_ID') : str('R2_ACCOUNT_ID', null),
+            accessKeyId: storageDriver === 'r2' ? required('R2_ACCESS_KEY_ID') : str('R2_ACCESS_KEY_ID', null),
+            secretAccessKey: storageDriver === 'r2' ? required('R2_SECRET_ACCESS_KEY') : str('R2_SECRET_ACCESS_KEY', null),
+            bucket: storageDriver === 'r2' ? required('R2_BUCKET') : str('R2_BUCKET', null),
+        }),
+        // Vida de una URL firmada de descarga (segundos).
+        signedUrlTtlSeconds: int('OBJECT_URL_TTL_SECONDS', 600, { min: 30, max: 7 * 24 * 3600 }),
     }),
 
     rateLimit: Object.freeze({

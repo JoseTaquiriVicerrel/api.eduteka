@@ -1,0 +1,51 @@
+# Proceso de fondo de la API (colas BullMQ). Mismo codigo y misma version que eduteka-api.
+#
+#   sudo cp deploy/eduteka-worker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now eduteka-worker
+#   journalctl -u eduteka-worker -f
+#   curl -s http://127.0.0.1:3003/health
+#
+# Necesita en /opt/eduteka/shared/.env: QUEUE_ENABLED=true y QUEUE_REDIS_* (deploy/redis-queue.conf).
+# deploy/release.sh lo reinicia despues de la API si esta habilitado.
+
+[Unit]
+Description=Eduteka worker (colas de api_eduteka)
+After=network-online.target redis-queue.service
+Wants=network-online.target redis-queue.service
+
+[Service]
+Type=simple
+User=eduteka
+Group=eduteka
+WorkingDirectory=/opt/eduteka/current
+EnvironmentFile=/opt/eduteka/shared/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node src/worker.js
+
+# SIGTERM: deja de tomar trabajos, espera los que estan en curso y cierra (fuerza la salida a los 10 s;
+# un trabajo cortado vuelve a la cola como "stalled" y lo retoma el siguiente arranque).
+KillSignal=SIGTERM
+TimeoutStopSec=20
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+LimitNOFILE=65535
+MemoryMax=768M
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/eduteka
+
+[Install]
+WantedBy=multi-user.target

@@ -275,6 +275,54 @@ journalctl -u eduteka-api -f
 
 Un solo proceso es suficiente: el rate limit y los bloqueos de login están en Redis. **Redis debe estar siempre arriba**: si cae, `/health` responde 503 y cada proceso cuenta los límites por su cuenta.
 
+### 5.1 Colas (BullMQ) y procesos de fondo
+
+Plan de separación de servicios, Fase 0 (`eduteka/docs/plan-separacion-servicios-2026-11.md`). Las colas viven en una **segunda instancia de Redis**, porque la caché necesita expulsar claves y una cola no puede perder trabajos.
+
+| Instancia | Puerto | `maxmemory-policy` | Para qué |
+|---|---|---|---|
+| Redis actual (caché) | 6379 | `volatile-lru` | caché, sesiones técnicas, contadores, pub/sub `edk:*` |
+| `redis-queue` | 6380 | `noeviction` | colas BullMQ (prefijo `edk:q`) |
+
+**1. Auditar el Redis actual** (solo lectura):
+
+```bash
+REDIS_PASSWORD=... deploy/redis-audit.sh
+```
+
+Revisa que `maxmemory` no sea `0` y mira las claves **sin TTL** del final: `volatile-lru` nunca las expulsa.
+
+**2. Fijar la política de la caché** (en su `redis.conf`, y en caliente):
+
+```bash
+redis-cli -a "$REDIS_PASSWORD" CONFIG SET maxmemory 512mb
+redis-cli -a "$REDIS_PASSWORD" CONFIG SET maxmemory-policy volatile-lru
+redis-cli -a "$REDIS_PASSWORD" CONFIG REWRITE
+```
+
+**3. Instalar `redis-queue`**: los pasos están en la cabecera de `deploy/redis-queue.service`. Cambia `requirepass` en `/etc/redis/redis-queue.conf` y pon la misma clave en `QUEUE_REDIS_PASSWORD`.
+
+**4. Activar el worker**: en `/opt/eduteka/shared/.env`, `QUEUE_ENABLED=true` y `QUEUE_REDIS_*`; después:
+
+```bash
+sudo install -m 440 deploy/sudoers-deploy /etc/sudoers.d/eduteka-deploy   # permite reiniciar eduteka-worker
+sudo cp deploy/eduteka-worker.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now eduteka-worker
+curl -s http://127.0.0.1:3003/health
+```
+
+`deploy/release.sh` reinicia `eduteka-worker` después de la API **solo si está habilitado**, y vuelve a la versión anterior si su `/health` no responde.
+
+**5. Comprobar de extremo a extremo** (desde `/opt/eduteka/current`, como `eduteka`):
+
+```bash
+QUEUE_ENABLED=true node scripts/queue_ping.js
+```
+
+Para comprobar que un trabajo sobrevive a un reinicio: `sudo systemctl stop eduteka-worker`, lanza `node scripts/queue_ping.js --wait=60` y, mientras espera, `sudo systemctl start eduteka-worker`. La respuesta tiene que llegar.
+
+El Redis de colas **no se respalda**: solo transporta trabajos; la verdad de negocio está en Mongo.
+
 ## 6. Respaldos
 
 `/opt/eduteka/bin/backup.sh` (copia de `deploy/backup.sh`; lee el `.env`, así que corre como `root`) guarda Mongo, los comprobantes de pago y los avatares (no la caché de fórmulas, que se regenera).
