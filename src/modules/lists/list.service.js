@@ -6,6 +6,10 @@ import { canSeeSolutions, isPremium } from '#Libs/capabilities.js';
 import { limitsFor } from '#Libs/plan_limits.js';
 import { convertSlug, groupByAndCount } from '#Libs/functions.js';
 import { buildListPdf } from '#Libs/list_pdf.js';
+import { settings } from '#Config/settings.js';
+import { DocsUnavailableError, printPdf } from '#Libs/docs_client.js';
+import { logger } from '#Libs/logger.js';
+import { buildListHtml } from './list.pdf_html.js';
 import { skipOf } from '#Libs/paginate.js';
 import { PUBLIC_QUESTION_PROJECTION, optionEntries, serializeQuestion } from '#Serializers/question.serializer.js';
 import { practicableFilter } from '#Modules/questions/question.filters.js';
@@ -207,9 +211,12 @@ const refreshDerived = async (user, id) => {
 };
 
 /**
- * PDF de TEXTO de una lista propia (ver #Libs/list_pdf.js para sus limites). Con
- * `includeAnswers` añade la clave de respuestas, solo a suscriptores y docentes: si no, el PDF
- * seria una via para saltarse el cupo diario de respuestas.
+ * PDF de una lista propia. Con `includeAnswers` añade la clave de respuestas, solo a suscriptores
+ * y docentes: si no, el PDF seria una via para saltarse el cupo diario de respuestas.
+ *
+ * Con las colas encendidas lo imprime edk-docs (Fase 2): el mismo diseño que la web, con formulas
+ * e imagenes. Si edk-docs no esta (colas apagadas, Redis caido, sin respuesta a tiempo), se entrega
+ * el PDF de TEXTO de siempre (#Libs/list_pdf.js): peor, pero nunca un error.
  */
 export const buildPdf = async ({ user, id, includeAnswers }) => {
     if (includeAnswers && !isPremium(user) && !canSeeSolutions(user)) {
@@ -219,23 +226,36 @@ export const buildPdf = async ({ user, id, includeAnswers }) => {
     const list = await findOwn(id, user);
     const ids = list.questions ?? [];
     const docs = ids.length
-        ? await QuestionModel.find({ _id: { $in: ids }, ...practicableFilter() }, { question: 1, options: 1, rpta: 1 }).lean().exec()
+        ? await QuestionModel.find({ _id: { $in: ids }, ...practicableFilter() }, { question: 1, options: 1, rpta: 1, area: 1 }).lean().exec()
         : [];
     const byId = new Map(docs.map((doc) => [doc._id, doc]));
     const questions = ids.map((questionId) => byId.get(questionId)).filter(Boolean);
 
     if (questions.length === 0) throw ApiError.conflict('La lista no tiene preguntas disponibles.');
 
-    const buffer = await buildListPdf({
+    const content = {
         title: list.name ?? 'Lista de preguntas',
         description: list.description,
         includeAnswers,
         questions: questions.map((doc) => ({
+            area: doc.area,
             question: doc.question,
             options: optionEntries(doc.options).map(([key, text]) => ({ key, text })),
             correct: doc.rpta,
         })),
-    });
+    };
+    const filename = `${convertSlug(list.name ?? '') || 'lista-de-preguntas'}.pdf`;
 
-    return { buffer, filename: `${convertSlug(list.name ?? '') || 'lista-de-preguntas'}.pdf` };
+    // Con las colas apagadas ni se arma el HTML (convertir formulas para descartarlas no tiene sentido).
+    if (settings.queue.enabled) {
+        try {
+            const html = await buildListHtml(content);
+            return { buffer: await printPdf({ html, title: content.title }), filename, renderer: 'docs' };
+        } catch (error) {
+            if (!(error instanceof DocsUnavailableError)) throw error;
+            logger.warn({ err: error.message, list: id }, 'PDF de lista: edk-docs no disponible, se entrega el de texto');
+        }
+    }
+
+    return { buffer: await buildListPdf(content), filename, renderer: 'text' };
 };

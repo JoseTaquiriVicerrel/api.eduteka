@@ -29,12 +29,12 @@ const unrecoverableIfMissingEngine = (error) => {
 
 export const createDocsHandlers = ({ browserManager, storage = defaultStorage, docx = convertDocx } = {}) => ({
     'print-pdf': async (job) => {
-        const { html_key: htmlKey, output_key: outputKey, title, header_footer: headerFooter, watermark } = job.data;
+        const { html_key: htmlKey, output_key: outputKey, title, header_footer: headerFooter, watermark, self_contained: selfContained } = job.data;
         if (await storage.exists(outputKey)) return { key: outputKey, cached: true };
 
         const started = Date.now();
         const html = (await readObject(storage, htmlKey)).toString('utf8');
-        const pdf = await printHtml(browserManager, html, { title, headerFooter, watermark }).catch(unrecoverableIfMissingEngine);
+        const pdf = await printHtml(browserManager, html, { title, headerFooter, watermark, selfContained }).catch(unrecoverableIfMissingEngine);
         await storage.put(outputKey, pdf, { contentType: 'application/pdf' });
         // La entrada ya no sirve: el resultado queda guardado con su clave.
         await storage.delete(htmlKey).catch(() => {});

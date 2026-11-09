@@ -321,6 +321,11 @@ const settings = Object.freeze({
         libreOfficePath: str('LIBREOFFICE_PATH', null),
         // Tiempo maximo de una impresion o conversion.
         timeoutMs: int('DOCS_TIMEOUT_MS', 90_000, { min: 5_000, max: 600_000 }),
+        // Lo que una peticion HTTP de la API espera a edk-docs antes de entregar el PDF de respaldo.
+        waitMs: int('DOCS_WAIT_MS', 30_000, { min: 1_000, max: 300_000 }),
+        // Carpeta publica del monolito (imagenes de preguntas) para incrustarlas en los PDF que arma
+        // la API. Por defecto FILES_ROOT_DIR/public (FILES_ROOT_DIR es la carpeta `src` del monolito).
+        publicDir: path.resolve(str('DOCS_PUBLIC_DIR', path.join(str('FILES_ROOT_DIR', path.join(str('STORAGE_DIR', './storage'), '..')), 'public'))),
     }),
 
     // Reloj de los simulacros programados (src/scheduler.js). Ver modules/simulacra/scheduler.

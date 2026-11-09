@@ -26,11 +26,13 @@ export const destroy = asyncHandler(async (req, res) => {
 });
 
 export const pdf = asyncHandler(async (req, res) => {
-    const { buffer, filename } = await lists.buildPdf({
+    const { buffer, filename, renderer } = await lists.buildPdf({
         user: req.user, id: req.params.id, includeAnswers: req.query.include_answers === true,
     });
     // `attachment()` fija Content-Disposition (con el nombre codificado) y el Content-Type por la extension.
     res.attachment(filename);
+    // Quien imprimio: `docs` (edk-docs, con formulas e imagenes) o `text` (respaldo). Para diagnostico.
+    res.set('X-Pdf-Renderer', renderer);
     return res.send(buffer);
 });
 

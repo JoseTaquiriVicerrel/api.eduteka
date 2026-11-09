@@ -66,9 +66,19 @@ export const pageCount = async (pdfBuffer) => (await PDFDocument.load(pdfBuffer)
  */
 export const printHtml = async (browserManager, html, {
     title = '', headerFooter = true, watermark = headerFooter, webUrl = settings.app.webUrl ?? 'https://eduteka.pe',
-    timeoutMs = settings.docs.timeoutMs,
+    timeoutMs = settings.docs.timeoutMs, selfContained = false,
 } = {}) => {
     const pdf = await browserManager.withPage(async (page) => {
+        if (selfContained) {
+            // HTML autocontenido (lo arma la API): sin JavaScript y sin red. Es la defensa que no depende de
+            // haber limpiado bien el HTML de las preguntas (scripts, iframes, hojas de estilo remotas).
+            await page.setJavaScriptEnabled(false);
+            await page.setRequestInterception(true);
+            page.on('request', (request) => {
+                const url = request.url();
+                return url.startsWith('data:') || url === 'about:blank' ? request.continue() : request.abort();
+            });
+        }
         // El HTML no necesita red: todo viene incrustado. Lo que pida igual (un CDN olvidado) se corta
         // a los `timeoutMs` en vez de colgar la impresion.
         await page.setContent(html, { waitUntil: 'load', timeout: timeoutMs });

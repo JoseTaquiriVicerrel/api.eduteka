@@ -67,6 +67,23 @@ const openConnection = (role, extra) => {
     return connection;
 };
 
+/**
+ * Registrador de errores que colapsa repetidos: con Redis caido, BullMQ emite el mismo error en
+ * cada reintento (varias veces por segundo) y llenaria el log. Se escribe el primero y, de nuevo,
+ * cuando cambia el mensaje o pasa un minuto.
+ */
+const collapsedErrorLogger = (message, fields) => {
+    let last = null;
+    let lastAt = 0;
+    return (error) => {
+        const text = error?.message ?? String(error);
+        if (text === last && Date.now() - lastAt < 60_000) return;
+        last = text;
+        lastAt = Date.now();
+        logger.error({ err: text, ...fields }, message);
+    };
+};
+
 let producerConnection = null;
 const producer = () => {
     producerConnection ??= openConnection('producer', { enableOfflineQueue: false, maxRetriesPerRequest: 1 });
@@ -112,7 +129,7 @@ export const getQueue = (name) => {
             prefix: settings.queue.prefix,
             defaultJobOptions: DEFAULT_JOB_OPTIONS,
         });
-        queue.on('error', (error) => logger.error({ err: error?.message, queue: name }, 'Error de cola'));
+        queue.on('error', collapsedErrorLogger('Error de cola', { queue: name }));
         queues.set(name, queue);
     }
     return queue;
@@ -180,7 +197,7 @@ export const createWorker = (queue, handlers, { concurrency = settings.worker.co
     worker.on('failed', (job, error) => {
         logger.error({ err: error?.message, queue, job: job?.name, id: job?.id, attempt: job?.attemptsMade }, 'Trabajo fallido');
     });
-    worker.on('error', (error) => logger.error({ err: error?.message, queue }, 'Error del worker'));
+    worker.on('error', collapsedErrorLogger('Error del worker', { queue }));
     workers.add(worker);
     return worker;
 };
@@ -191,7 +208,7 @@ export const getQueueEvents = (name) => {
     let queueEvents = events.get(name);
     if (!queueEvents) {
         queueEvents = new QueueEvents(name, { connection: consumer(), prefix: settings.queue.prefix });
-        queueEvents.on('error', (error) => logger.error({ err: error?.message, queue: name }, 'Error de eventos de cola'));
+        queueEvents.on('error', collapsedErrorLogger('Error de eventos de cola', { queue: name }));
         events.set(name, queueEvents);
     }
     return queueEvents;

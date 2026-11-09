@@ -386,6 +386,8 @@ Tres procesos del mismo código sustituyen al reloj y al socket del monolito:
 
 **Vuelta atrás**: `DOCS_RENDERER=local` en el monolito y reiniciarlo.
 
+**PDF de listas de la API** (`GET /api/v1/mis-listas/:id/pdf`): con `QUEUE_ENABLED=true` la API arma su propio HTML (fórmulas convertidas a SVG con el mismo `mathStore` de `?math=svg`, imágenes incrustadas desde `DOCS_PUBLIC_DIR`) y lo imprime edk-docs. Si edk-docs no responde en `DOCS_WAIT_MS` (30 s) o el Redis de colas no está, entrega el PDF de **texto** de siempre. La cabecera `X-Pdf-Renderer` dice cuál salió (`docs` o `text`). La API y edk-docs deben ver el mismo almacenamiento (`OBJECT_STORAGE_DIR` o R2).
+
 **Limpieza pendiente**: los PDF impresos quedan en `pdf/print/` y `pdf/docx/` del almacenamiento. En R2, una regla de ciclo de vida (p. ej. 30 días) sobre esos prefijos; en disco, todavía no hay poda automática.
 
 ## 6. Respaldos

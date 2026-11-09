@@ -81,6 +81,10 @@ const JOBS = Object.freeze({
             title: Type.String({ maxLength: 300 }),
             header_footer: Type.Boolean(),
             watermark: Type.Boolean(),
+            // El HTML no necesita JavaScript ni red (todo va incrustado): se imprime con JS apagado y se
+            // cortan las peticiones que no sean `data:`. Sin el campo (o false) se imprime como siempre:
+            // las plantillas del monolito cargan MathJax y fuentes de un CDN.
+            self_contained: Type.Optional(Type.Boolean()),
         }, { additionalProperties: false }),
         // Convierte un .docx (material del docente) a PDF con LibreOffice.
         'docx-pdf': Type.Object({

@@ -196,6 +196,28 @@ describe('impresion real con Chromium', { skip: LOCAL_CHROME ? false : 'sin Chro
         assert.ok(Math.abs(width - 595) < 2 && Math.abs(height - 842) < 2, `A4: ${width}x${height}`);
     });
 
+    it('self_contained: sin JavaScript y sin red; sin la opcion, todo funciona como siempre', async () => {
+        const http = await import('node:http');
+        let hits = 0;
+        const server = http.createServer((req, res) => { hits += 1; res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(); });
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        try {
+            const url = `http://127.0.0.1:${server.address().port}/x.png`;
+            // El script llena el documento: con JavaScript sale en varias paginas, sin el en una.
+            const html = `<html><body><p>uno</p><img src="${url}"><script>for (let i = 0; i < 300; i++) document.body.append(Object.assign(document.createElement('p'), { textContent: 'linea ' + i }));</script></body></html>`;
+
+            const sealed = await PDFDocument.load(await printHtml(manager, html, { headerFooter: false, selfContained: true }));
+            assert.equal(sealed.getPageCount(), 1, 'el script no debe ejecutarse');
+            assert.equal(hits, 0, 'no debe pedir nada a la red');
+
+            const open = await PDFDocument.load(await printHtml(manager, html, { headerFooter: false }));
+            assert.ok(open.getPageCount() >= 2, 'sin la opcion el script si corre');
+            assert.ok(hits >= 1, 'sin la opcion la imagen si se pide');
+        } finally {
+            await new Promise((resolve) => server.close(resolve));
+        }
+    });
+
     it('varios documentos a la vez en el mismo navegador', async () => {
         const docs = await Promise.all([1, 2, 3, 4].map((n) => printHtml(manager, `<p>Documento ${n}</p>`, { headerFooter: false })));
         for (const pdf of docs) assert.equal((await PDFDocument.load(pdf)).getPageCount(), 1);
