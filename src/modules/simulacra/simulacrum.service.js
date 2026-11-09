@@ -438,7 +438,7 @@ const createEnrollment = async ({ user, simulacrum, body, capture, price, area, 
  *
  * @returns {Promise<{ graded: boolean, enrollment: object }>}
  */
-const gradeAndClose = async ({ simulacrum, enrollment, finishedAt }) => {
+export const gradeAndClose = async ({ simulacrum, enrollment, finishedAt }) => {
     const { prospect, items } = await loadQuestionSet(simulacrum, enrollment.area);
     const fields = gradeAttempt({ simulacrum, prospect, enrollment, items });
 

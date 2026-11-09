@@ -63,6 +63,75 @@ export const attemptDeadline = (sim, startedAt, durationMin) => {
     return new Date(end === null ? own : Math.min(own, end));
 };
 
+/**
+ * Hitos que el servidor debe ejecutar, en orden: [{ kind, at (ms epoch) }]. Port literal de
+ * `nextEvent` del monolito, pero devolviendo TODOS los futuros (el planificador de la API los
+ * deja programados de una vez como trabajos diferidos; ver scheduler/simulacrum.scheduler.js).
+ *
+ *   close:   se cerro la inscripcion (solo si cierra antes del inicio)
+ *   start:   abre la ventana
+ *   end:     termina la ventana (se califica y se cierra)
+ *   results: se publican los resultados, solo si results_public_at es posterior al fin;
+ *            sin el, se publican al cerrar (ver resultsDue)
+ *
+ * Un simulacro cerrado a mano ya no tiene inicio ni fin que vigilar, pero sus resultados
+ * programados siguen pendientes.
+ */
+export const upcomingEvents = (sim, now = new Date()) => {
+    if (!isScheduled(sim)) return [];
+    const t = new Date(now).getTime();
+    const start = time(sim.start_date);
+    const end = time(sim.end_date);
+    const close = time(sim.register_close_date) ?? start;
+    const results = time(sim.results_public_at);
+
+    const events = [];
+    if (!sim.finished) {
+        if (close < start) events.push({ kind: 'close', at: close });
+        events.push({ kind: 'start', at: start }, { kind: 'end', at: end });
+    }
+    if (sim.public_results !== true && results !== null && results > end) {
+        events.push({ kind: 'results', at: results });
+    }
+    return events.filter((e) => e.at > t).sort((a, b) => a.at - b.at);
+};
+
+/** Proximo hito ({ kind, at }) o null. Misma firma y resultado que en el monolito. */
+export const nextEvent = (sim, now = new Date()) => upcomingEvents(sim, now)[0] ?? null;
+
+/**
+ * Instante en que el simulacro tiene HOY programado el hito `kind` (ms epoch), o null si ya no
+ * lo tiene. Un trabajo diferido se programo con el instante de entonces: si el admin cambio las
+ * fechas, el trabajo viejo ya no coincide y se descarta sin hacer nada.
+ */
+export const milestoneAt = (sim, kind) => {
+    if (!isScheduled(sim)) return null;
+    const start = time(sim.start_date);
+    if (kind === 'close') {
+        const close = time(sim.register_close_date) ?? start;
+        return close < start ? close : null;
+    }
+    if (kind === 'start') return start;
+    if (kind === 'end') return time(sim.end_date);
+    if (kind === 'results') {
+        const results = time(sim.results_public_at);
+        return results !== null && results > time(sim.end_date) ? results : null;
+    }
+    return null;
+};
+
+/**
+ * Los resultados deben estar publicos ya. Sin results_public_at, al terminar la ventana; con el,
+ * a esa hora (nunca antes del fin). Un simulacro ya publicado no vuelve a decidirse.
+ */
+export const resultsDue = (sim, now = new Date()) => {
+    if (sim?.public_results === true || !isScheduled(sim)) return false;
+    const t = new Date(now).getTime();
+    const end = time(sim.end_date);
+    const at = time(sim.results_public_at);
+    return t >= Math.max(end, at ?? end);
+};
+
 /** Hora de publicacion de resultados: results_public_at, o el fin de la ventana. */
 export const resultsAt = (sim) => sim?.results_public_at ?? sim?.end_date ?? null;
 

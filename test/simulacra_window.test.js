@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    PHASES, attemptDeadline, canRegister, canStart, getPhase, isScheduled, resultsAt, resultsPublished, scheduleView,
+    PHASES, attemptDeadline, canRegister, canStart, getPhase, isScheduled, milestoneAt, nextEvent, resultsAt,
+    resultsDue, resultsPublished, scheduleView, upcomingEvents,
 } from '../src/modules/simulacra/simulacrum.window.js';
 import { ApiError } from '../src/libs/api_error.js';
 import { errorBody } from '../src/libs/envelope.js';
@@ -140,4 +141,56 @@ test('errorBody: holder al nivel de code/message, sin details, y extra no pisa c
 
     // Un error sin extra conserva la forma de siempre.
     assert.deepEqual(errorBody({ id: 'r' }, ApiError.notFound()).error, { code: 'NOT_FOUND', message: 'No se encontró el recurso solicitado.' });
+});
+
+// --- Hitos del planificador (paridad con nextEvent/resultsDue del monolito) ---
+
+test('nextEvent: cierre, inicio, fin y resultados programados', () => {
+    const s = { ...sim, results_public_at: new Date('2026-11-10T22:00:00Z') };
+    assert.equal(nextEvent(s, at('2026-11-10T10:00:00Z')).kind, 'close');
+    assert.equal(nextEvent(s, at('2026-11-10T18:30:00Z')).kind, 'start');
+    assert.equal(nextEvent(s, at('2026-11-10T19:30:00Z')).kind, 'end');
+    assert.equal(nextEvent(s, at('2026-11-10T21:30:00Z')).kind, 'results');
+    assert.equal(nextEvent(s, at('2026-11-10T22:00:00Z')), null);
+});
+
+test('nextEvent: sin results_public_at no hay hito de resultados; publico o cerrado a mano lo omiten', () => {
+    assert.equal(nextEvent(sim, at('2026-11-10T21:30:00Z')), null);
+    const s = { ...sim, results_public_at: new Date('2026-11-10T22:00:00Z') };
+    assert.equal(nextEvent({ ...s, public_results: true }, at('2026-11-10T21:30:00Z')), null);
+    // Cerrado a mano antes del fin: no vigila inicio/fin, pero los resultados siguen pendientes.
+    assert.equal(nextEvent({ ...s, finished: true }, at('2026-11-10T19:30:00Z')).kind, 'results');
+});
+
+test('resultsDue: al terminar la ventana o a la hora programada, nunca antes', () => {
+    assert.equal(resultsDue(sim, at('2026-11-10T20:59:59Z')), false);
+    assert.equal(resultsDue(sim, at('2026-11-10T21:00:00Z')), true);
+    const s = { ...sim, results_public_at: new Date('2026-11-10T22:00:00Z') };
+    assert.equal(resultsDue(s, at('2026-11-10T21:30:00Z')), false);
+    assert.equal(resultsDue(s, at('2026-11-10T22:00:00Z')), true);
+    assert.equal(resultsDue({ ...sim, public_results: true }, at('2026-11-10T23:00:00Z')), false);
+    assert.equal(resultsDue({ finished: false }, new Date()), false);
+});
+
+test('upcomingEvents: todos los hitos futuros en orden, y ninguno sin programar', () => {
+    const s = { ...sim, results_public_at: new Date('2026-11-10T22:00:00Z') };
+    assert.deepEqual(upcomingEvents(s, at('2026-11-10T10:00:00Z')).map((e) => e.kind), ['close', 'start', 'end', 'results']);
+    assert.deepEqual(upcomingEvents(s, at('2026-11-10T19:30:00Z')).map((e) => e.kind), ['end', 'results']);
+    assert.deepEqual(upcomingEvents(s, at('2026-11-10T22:00:00Z')), []);
+    assert.deepEqual(upcomingEvents({}, new Date()), []);
+    // Sin cierre propio (cierra al iniciar) no hay hito `close`.
+    const noClose = { start_date: sim.start_date, end_date: sim.end_date };
+    assert.deepEqual(upcomingEvents(noClose, at('2026-11-10T10:00:00Z')).map((e) => e.kind), ['start', 'end']);
+});
+
+test('milestoneAt: instante vigente de cada hito; null si ya no existe', () => {
+    const s = { ...sim, results_public_at: new Date('2026-11-10T22:00:00Z') };
+    assert.equal(milestoneAt(s, 'close'), Date.parse('2026-11-10T18:00:00Z'));
+    assert.equal(milestoneAt(s, 'start'), Date.parse('2026-11-10T19:00:00Z'));
+    assert.equal(milestoneAt(s, 'end'), Date.parse('2026-11-10T21:00:00Z'));
+    assert.equal(milestoneAt(s, 'results'), Date.parse('2026-11-10T22:00:00Z'));
+    assert.equal(milestoneAt(sim, 'results'), null);
+    assert.equal(milestoneAt({ start_date: sim.start_date, end_date: sim.end_date }, 'close'), null);
+    assert.equal(milestoneAt({}, 'start'), null);
+    assert.equal(milestoneAt(s, 'otro'), null);
 });

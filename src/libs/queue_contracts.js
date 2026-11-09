@@ -19,9 +19,17 @@ export const CONTRACT_VERSION = 1;
 export const QUEUES = Object.freeze({
     // Mantenimiento y comprobacion de extremo a extremo (scripts/queue_ping.js).
     SYSTEM: 'system',
+    // Reloj de los simulacros programados (lo consume src/scheduler.js): hitos diferidos,
+    // reconciliacion periodica y cierre de la ventana.
+    SIMULACRUM: 'simulacrum',
+    // Calificacion de cada intento abierto al cerrar la ventana (lo consume src/worker.js).
+    SIMULACRUM_GRADING: 'simulacrum-grading',
 });
 
 const Iso = Type.String({ minLength: 10, maxLength: 40 });
+// Los _id son cadenas (UUID o nanoid), no ObjectId.
+const Id = Type.String({ minLength: 1, maxLength: 64, pattern: '^[A-Za-z0-9_-]+$' });
+const MILESTONE_KINDS = ['close', 'start', 'end', 'results'];
 
 const JOBS = Object.freeze({
     [QUEUES.SYSTEM]: Object.freeze({
@@ -29,6 +37,30 @@ const JOBS = Object.freeze({
             v: Type.Literal(CONTRACT_VERSION),
             sent_at: Iso,
             from: Type.String({ minLength: 1, maxLength: 60 }),
+        }, { additionalProperties: false }),
+    }),
+    [QUEUES.SIMULACRUM]: Object.freeze({
+        // Hito diferido. `at` es el instante con el que se programo: si el admin movio las fechas,
+        // ya no coincide con el del simulacro y el trabajo se descarta (milestoneAt).
+        milestone: Type.Object({
+            v: Type.Literal(CONTRACT_VERSION),
+            simulacrum_id: Id,
+            kind: Type.Union(MILESTONE_KINDS.map((kind) => Type.Literal(kind))),
+            at: Type.Integer({ minimum: 0 }),
+        }, { additionalProperties: false }),
+        // Recalcula el estado de todos los programados abiertos (al arrancar y cada 5 min).
+        reconcile: Type.Object({ v: Type.Literal(CONTRACT_VERSION) }, { additionalProperties: false }),
+        // Padre del flujo de cierre: corre cuando terminaron (o fallaron) todas sus calificaciones.
+        'close-window': Type.Object({
+            v: Type.Literal(CONTRACT_VERSION),
+            simulacrum_id: Id,
+        }, { additionalProperties: false }),
+    }),
+    [QUEUES.SIMULACRUM_GRADING]: Object.freeze({
+        'grade-attempt': Type.Object({
+            v: Type.Literal(CONTRACT_VERSION),
+            simulacrum_id: Id,
+            user_simulacrum_id: Id,
         }, { additionalProperties: false }),
     }),
 });

@@ -415,7 +415,7 @@ export const me = (user) => serializeUser(user);
 const MONOLITH_TIMEOUT_MS = 3000;
 
 /** `id` del usuario de la cookie segun el monolito, o null si no es una sesion valida. */
-const monolithSessionUser = async (session, ctx) => {
+export const monolithSessionUser = async (session, ctx) => {
     let response;
     try {
         response = await fetch(`${settings.webClient.monolithUrl}/api/web/me`, {

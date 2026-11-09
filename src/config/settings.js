@@ -299,6 +299,17 @@ const settings = Object.freeze({
         enabled: bool('REALTIME_ENABLED', true),
         path: str('REALTIME_PATH', '/api/v1/realtime'),
         maxConnectionsPerUser: int('REALTIME_MAX_CONNECTIONS_PER_USER', 5, { min: 1, max: 20 }),
+        // Proceso propio (src/realtime.js). Con el en marcha, REALTIME_ENABLED=false en la API HTTP.
+        port: int('REALTIME_PORT', 3002, { min: 1, max: 65535 }),
+        // Acepta tambien la cookie `session` del monolito (paginas SSR), validada en el monolito
+        // (MONOLITH_URL) como el puente de sesion. Sin MONOLITH_URL solo hay Bearer.
+        cookieAuth: bool('REALTIME_COOKIE_AUTH', true),
+    }),
+
+    // Reloj de los simulacros programados (src/scheduler.js). Ver modules/simulacra/scheduler.
+    scheduler: Object.freeze({
+        healthPort: int('SCHEDULER_HEALTH_PORT', 3004, { min: 1, max: 65535 }),
+        concurrency: int('SCHEDULER_CONCURRENCY', 2, { min: 1, max: 16 }),
     }),
 
     // Precalentamiento de formulas: el monolito avisa (canal edk:content:events) cuando un examen o
@@ -324,6 +335,9 @@ const settings = Object.freeze({
     worker: Object.freeze({
         healthPort: int('WORKER_HEALTH_PORT', 3003, { min: 1, max: 65535 }),
         concurrency: int('WORKER_CONCURRENCY', 4, { min: 1, max: 64 }),
+        // Calificaciones simultaneas al cerrar una ventana. Cada una carga el simulacro y sus
+        // preguntas: con cientos de inscritos, sin tope irian todas a la vez contra Mongo.
+        gradingConcurrency: int('GRADING_CONCURRENCY', 5, { min: 1, max: 32 }),
     }),
 
     // Almacenamiento de objetos: disco local (hoy) o Cloudflare R2 (compatible con S3).

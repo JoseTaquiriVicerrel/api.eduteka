@@ -1,0 +1,53 @@
+# edk-realtime: el socket.io de los simulacros en vivo (app, Next y paginas SSR). Mismo codigo y
+# misma version que eduteka-api. Escucha en REALTIME_PORT (3002); Nginx le pasa /api/v1/realtime/.
+#
+#   sudo cp deploy/eduteka-realtime.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now eduteka-realtime
+#   journalctl -u eduteka-realtime -f
+#   curl -s http://127.0.0.1:3002/health
+#
+# Necesita Redis real (el bus edk:simulacrum:events) y, para la cookie de las paginas SSR, MONOLITH_URL.
+# Con este proceso en marcha: REALTIME_ENABLED=false en el .env (la API HTTP deja de abrir su socket).
+# deploy/release.sh lo reinicia despues de la API si esta habilitado.
+
+[Unit]
+Description=Eduteka realtime (simulacros en vivo, api_eduteka)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=eduteka
+Group=eduteka
+WorkingDirectory=/opt/eduteka/current
+EnvironmentFile=/opt/eduteka/shared/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node src/realtime.js
+
+# SIGTERM: deja de tomar trabajos, espera los que estan en curso y cierra (fuerza la salida a los 10 s;
+# un trabajo cortado vuelve a la cola como "stalled" y lo retoma el siguiente arranque).
+KillSignal=SIGTERM
+TimeoutStopSec=20
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+LimitNOFILE=65535
+MemoryMax=512M
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/eduteka
+
+[Install]
+WantedBy=multi-user.target

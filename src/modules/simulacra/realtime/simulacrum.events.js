@@ -111,6 +111,35 @@ export const onResync = (handler) => {
     return () => bus.off('resync', wrapped);
 };
 
+/** Mensaje de una senal (contrato §7.1). Mismo formato que buildSignal del monolito. */
+export const buildSignal = (type, sim, now = new Date()) => ({
+    v: SIGNAL_VERSION,
+    type,
+    simulacrum_id: String(sim._id),
+    slug: sim.slug,
+    emitted_at: now.toISOString(),
+});
+
+/**
+ * Publica una senal en Redis para los demas procesos (edk-realtime, la API). La emite el
+ * planificador (scheduler/simulacrum.scheduler.js) desde que el reloj salio del monolito.
+ *
+ * Nunca lanza ni bloquea el hito: si Redis falla se registra y devuelve false. Sin Redis
+ * (cliente en memoria) la entrega por el bus local, para desarrollo y pruebas.
+ */
+export const publishSignal = async (type, sim, now = new Date()) => {
+    if (!SIGNAL_TYPES.includes(type)) throw new Error(`Tipo de senal desconocido: ${type}`);
+    const message = buildSignal(type, sim, now);
+    if (redisClient.isMemoryFallback || typeof redisClient.publish !== 'function') return publishLocal(message);
+    try {
+        await redisClient.publish(SIGNAL_CHANNEL, JSON.stringify(message));
+        return true;
+    } catch (error) {
+        logger.error({ err: error?.message, type, simulacrum: message.simulacrum_id }, 'No se pudo publicar la senal de simulacro');
+        return false;
+    }
+};
+
 /** Inyecta una senal en el bus local (pruebas y modo memoria). Ignora lo que no cumpla el contrato. */
 export const publishLocal = (message) => {
     const signal = normalizeSignal(message);

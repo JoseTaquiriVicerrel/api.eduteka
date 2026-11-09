@@ -323,6 +323,49 @@ Para comprobar que un trabajo sobrevive a un reinicio: `sudo systemctl stop edut
 
 El Redis de colas **no se respalda**: solo transporta trabajos; la verdad de negocio está en Mongo.
 
+### 5.2 Simulacros en vivo fuera del monolito (Fase 1)
+
+Tres procesos del mismo código sustituyen al reloj y al socket del monolito:
+
+| Unidad | Qué hace | `/health` |
+|---|---|---|
+| `eduteka-scheduler` | Hitos de cada simulacro programado (trabajos diferidos en la cola `simulacrum`), `reconcile` cada 5 min y cierre de la ventana | `127.0.0.1:3004` |
+| `eduteka-worker` | Califica cada intento abierto al cerrar (cola `simulacrum-grading`) con el mismo cierre que `finalizar` | `127.0.0.1:3003` |
+| `eduteka-realtime` | El único socket.io: app y Next (Bearer) y páginas SSR del monolito (cookie, validada en el monolito) | `127.0.0.1:3002` |
+
+**Los dos relojes nunca a la vez.** El monolito tiene el interruptor `SIMULACRUM_CLOCK`: `monolith` (por defecto, como hoy) o `external`. Corta **fuera de una ventana**: sin simulacros programados que empiecen o terminen en las próximas 24 h.
+
+**Corte**
+
+1. Colas activas (§5.1) y `eduteka-worker` habilitado.
+2. En `/opt/eduteka/shared/.env`: `REALTIME_ENABLED=false` (la API HTTP deja de abrir su socket) y `MONOLITH_URL` definido (lo usa la cookie del socket).
+3. Instalar y habilitar `eduteka-scheduler` y `eduteka-realtime` (copiar las unidades de `deploy/`, `daemon-reload`, `enable --now`), reinstalar `deploy/sudoers-deploy` y reiniciar `eduteka-api`.
+4. Nginx de la API: `deploy/nginx-api.conf` ya manda `/api/v1/realtime/` al upstream `eduteka_realtime` (3002). `nginx -t && systemctl reload nginx`.
+5. Nginx de la web (`eduteka.pe`): el socket de las páginas SSR va por el mismo origen, para que viaje la cookie. Agregar, **antes** de `location /`:
+
+   ```nginx
+   location /api/v1/realtime/ {
+       proxy_pass http://127.0.0.1:3002;
+       proxy_http_version 1.1;
+       proxy_set_header Upgrade    $http_upgrade;
+       proxy_set_header Connection "upgrade";
+       proxy_set_header Host              $host;
+       proxy_set_header X-Real-IP         $remote_addr;
+       proxy_set_header X-Forwarded-For   $remote_addr;
+       proxy_set_header X-Forwarded-Proto $scheme;
+       proxy_read_timeout 3600s;
+       proxy_send_timeout 3600s;
+       proxy_buffering    off;
+   }
+   ```
+
+6. En el `.env` del monolito: `SIMULACRUM_CLOCK=external` y reiniciarlo. Al arrancar escribe `SIMULACRUM_CLOCK=external: el reloj de simulacros corre en edk-scheduler`.
+7. Comprobar: los tres `/health` en 200 y, con un simulacro gratis de prueba, los criterios de `docs/spec-simulacros-en-vivo-0-contrato.md` §12 desde la app y desde la web.
+
+**Vuelta atrás**: `SIMULACRUM_CLOCK=monolith` en el monolito y reiniciarlo, `systemctl disable --now eduteka-scheduler eduteka-realtime`, `REALTIME_ENABLED=true` en la API y quitar el `location` de `eduteka.pe`. Al arrancar, el monolito reconcilia y retoma lo pendiente.
+
+**Varias réplicas**: el scheduler no necesita líder (los hitos tienen id determinista y todo es idempotente). En realtime, cada réplica escucha el bus y emite a sus propios sockets; con transporte *polling* hace falta `ip_hash` en el upstream.
+
 ## 6. Respaldos
 
 `/opt/eduteka/bin/backup.sh` (copia de `deploy/backup.sh`; lee el `.env`, así que corre como `root`) guarda Mongo, los comprobantes de pago y los avatares (no la caché de fórmulas, que se regenera).

@@ -9,9 +9,31 @@ import { QueueDisabledError, closeQueues, createWorker, enqueue, getQueue, pingQ
 const ping = (overrides = {}) => ({ v: CONTRACT_VERSION, sent_at: new Date().toISOString(), from: 'test', ...overrides });
 
 describe('contrato de colas', () => {
-    it('declara la cola system con su trabajo ping', () => {
-        assert.deepEqual(queueNames(), ['system']);
+    it('declara las colas y sus trabajos', () => {
+        assert.deepEqual(queueNames(), ['system', 'simulacrum', 'simulacrum-grading']);
         assert.deepEqual(jobNames(QUEUES.SYSTEM), ['ping']);
+        assert.deepEqual(jobNames(QUEUES.SIMULACRUM), ['milestone', 'reconcile', 'close-window']);
+        assert.deepEqual(jobNames(QUEUES.SIMULACRUM_GRADING), ['grade-attempt']);
+    });
+
+    it('los nombres de cola no llevan ":" (BullMQ los rechaza)', () => {
+        for (const name of queueNames()) assert.doesNotMatch(name, /:/);
+    });
+
+    it('hito: solo los cuatro tipos, con instante entero y id sin caracteres raros', () => {
+        const milestone = (overrides) => ({ v: CONTRACT_VERSION, simulacrum_id: 'b2875ee8-1', kind: 'start', at: 1_800_000_000_000, ...overrides });
+        assert.ok(validateJob(QUEUES.SIMULACRUM, 'milestone', milestone()));
+        for (const kind of ['close', 'end', 'results']) assert.ok(validateJob(QUEUES.SIMULACRUM, 'milestone', milestone({ kind })));
+        assert.throws(() => validateJob(QUEUES.SIMULACRUM, 'milestone', milestone({ kind: 'otro' })), InvalidJobError);
+        assert.throws(() => validateJob(QUEUES.SIMULACRUM, 'milestone', milestone({ at: 1.5 })), InvalidJobError);
+        assert.throws(() => validateJob(QUEUES.SIMULACRUM, 'milestone', milestone({ simulacrum_id: 'a:b' })), InvalidJobError);
+        assert.throws(() => validateJob(QUEUES.SIMULACRUM, 'milestone', milestone({ simulacrum_id: { $ne: null } })), InvalidJobError);
+    });
+
+    it('calificacion: simulacro e intento', () => {
+        const data = { v: CONTRACT_VERSION, simulacrum_id: 's1', user_simulacrum_id: 'u1' };
+        assert.ok(validateJob(QUEUES.SIMULACRUM_GRADING, 'grade-attempt', data));
+        assert.throws(() => validateJob(QUEUES.SIMULACRUM_GRADING, 'grade-attempt', { ...data, user_simulacrum_id: '' }), InvalidJobError);
     });
 
     it('acepta una carga valida y la devuelve tal cual', () => {

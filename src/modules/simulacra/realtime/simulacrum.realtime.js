@@ -1,8 +1,10 @@
 // Socket de los simulacros programados (contrato §7.2). Solo retransmite: lee el estado de Mongo en el
 // momento de cada senal y lo emite a la sala del simulacro. Nunca decide nada.
 //
-//   conexion   auth: { token } (access token). Se verifica aqui y en cada `join`.
-//   join       { slug } -> ack { ok, state } y un `sim:state`. Solo quien tiene inscripcion.
+//   conexion   auth: { token } (access token: app, y web Next via BFF), o la cookie `session` del
+//              monolito (paginas SSR, mismo origen), validada EN el monolito como el puente de sesion.
+//   join       { slug } (app) o { simulacrum_id } (SSR) -> ack { ok, state } y un `sim:state`.
+//              Solo quien tiene inscripcion.
 //   eventos    sim:state | sim:close | sim:start | sim:end | sim:results | sim:updated
 
 import { Type } from '@sinclair/typebox';
@@ -14,11 +16,33 @@ import UserSimulacrumModel from '#Models/user_simulacrum_model.js';
 import { settings } from '#Config/settings.js';
 import { logger } from '#Libs/logger.js';
 import { verifyAccessToken } from '#Libs/tokens.js';
+import { monolithSessionUser } from '#Modules/auth/auth.service.js';
 import { onResync, subscribe } from './simulacrum.events.js';
 import { getPhase, resultsAt, resultsPublished } from '../simulacrum.window.js';
 
 const JOIN_PER_MINUTE = 20;
-const JoinPayload = Type.Object({ slug: Type.String({ minLength: 1, maxLength: 200 }) }, { additionalProperties: false });
+const JoinPayload = Type.Union([
+    Type.Object({ slug: Type.String({ minLength: 1, maxLength: 200 }) }, { additionalProperties: false }),
+    Type.Object({ simulacrum_id: Type.String({ minLength: 1, maxLength: 64, pattern: '^[A-Za-z0-9_-]+$' }) }, { additionalProperties: false }),
+]);
+
+// Cookie `session` del monolito: un JWT. Solo [A-Za-z0-9._-], igual que WebExchangeBody: se pega en
+// una cabecera Cookie hacia el monolito y no puede cerrar la cookie ni abrir otra cabecera.
+const SESSION_COOKIE = /(?:^|;\s*)session=([A-Za-z0-9._-]{20,4096})(?:;|$)/;
+const sessionCookieOf = (header) => (typeof header === 'string' ? SESSION_COOKIE.exec(header)?.[1] ?? null : null);
+
+/** id del usuario del handshake: Bearer primero; si no hay, la cookie del monolito. null = sin sesion. */
+const handshakeUserId = async (handshake) => {
+    const token = handshake.auth?.token;
+    if (typeof token === 'string' && token) {
+        const { uid } = await verifyAccessToken(token);
+        return uid;
+    }
+    if (!settings.realtime.cookieAuth || !settings.webClient.monolithUrl) return null;
+    const session = sessionCookieOf(handshake.headers?.cookie);
+    if (!session) return null;
+    return monolithSessionUser(session, { ip: handshake.headers?.['x-real-ip'] ?? handshake.address });
+};
 
 const room = (simulacrumId) => `simulacrum:${simulacrumId}`;
 const iso = (value) => {
@@ -50,17 +74,17 @@ export function attachRealtime(httpServer) {
     const io = new Server(httpServer, {
         path: settings.realtime.path,
         serveClient: false, // el cliente lo trae la app
-        cors: { origin: (origin, callback) => callback(null, !origin || settings.corsOrigins.includes(origin)) },
+        // `credentials` para el cliente SSR en desarrollo (otro puerto del mismo sitio, con cookie).
+        cors: { origin: (origin, callback) => callback(null, !origin || settings.corsOrigins.includes(origin)), credentials: true },
         transports: ['websocket', 'polling'],
         maxHttpBufferSize: 10_000, // solo viajan mensajes minusculos
     });
 
     // --- Autenticacion del handshake (mismo criterio que middlewares/authenticate.js) ---
     io.use(async (socket, next) => {
-        const token = socket.handshake.auth?.token;
-        if (typeof token !== 'string' || !token) return next(new Error('UNAUTHENTICATED'));
         try {
-            const { uid } = await verifyAccessToken(token);
+            const uid = await handshakeUserId(socket.handshake);
+            if (!uid) return next(new Error('UNAUTHENTICATED'));
             const user = await UserModel.findById(uid, { _id: 1, state: 1 }).lean().exec();
             if (!user || user.state === false) return next(new Error('UNAUTHENTICATED'));
             socket.data.userId = user._id;
@@ -99,7 +123,11 @@ export function attachRealtime(httpServer) {
                 if (!Value.Check(JoinPayload, payload)) return reply({ ok: false, code: 'BAD_REQUEST' });
 
                 const simulacrum = await SimulacrumModel
-                    .findOne({ slug: payload.slug, verified: true, state: { $ne: false } }, STATE_FIELDS).lean().exec();
+                    .findOne({
+                        ...(payload.slug ? { slug: payload.slug } : { _id: payload.simulacrum_id }),
+                        verified: true,
+                        state: { $ne: false },
+                    }, STATE_FIELDS).lean().exec();
                 const enrolled = simulacrum
                     && await UserSimulacrumModel.exists({ user_id: userId, simulacrum_id: simulacrum._id });
                 // Mismo codigo para "no existe" y "no estas inscrito": no revela cual de los dos.

@@ -15,7 +15,7 @@
 // Nada se conecta al importar este modulo: solo al primer uso. Asi la API puede importarlo con las
 // colas apagadas (QUEUE_ENABLED=false, el valor por defecto).
 
-import { Queue, QueueEvents, Worker, UnrecoverableError } from 'bullmq';
+import { FlowProducer, Queue, QueueEvents, Worker, UnrecoverableError } from 'bullmq';
 import { Redis } from 'ioredis';
 import { settings } from '#Config/settings.js';
 import { logger } from '#Libs/logger.js';
@@ -43,6 +43,7 @@ const queues = new Map();
 const workers = new Set();
 const events = new Map();
 const connections = new Set();
+let flowProducer = null;
 
 const baseOptions = () => ({
     host: settings.queue.host,
@@ -130,13 +131,35 @@ export const enqueue = async (queue, name, data, options = {}) => {
 };
 
 /**
- * Consumidor de una cola. `handlers` es { nombreDeTrabajo: async (job) => resultado }.
+ * Flujos padre/hijos (el cierre de una ventana: un padre que corre cuando terminaron las
+ * calificaciones). Solo procesos de fondo: usa una conexion que espera a Redis.
+ * Valida contra el contrato el padre y cada hijo antes de tocar Redis.
+ */
+export const addFlow = async (flow) => {
+    assertEnabled();
+    const check = (node) => {
+        validateJob(node.queueName, node.name, node.data);
+        (node.children ?? []).forEach(check);
+    };
+    check(flow);
+    flowProducer ??= new FlowProducer({ connection: consumer(), prefix: settings.queue.prefix });
+    const withDefaults = (node) => ({
+        ...node,
+        opts: { ...DEFAULT_JOB_OPTIONS, ...node.opts },
+        ...(node.children ? { children: node.children.map(withDefaults) } : {}),
+    });
+    return flowProducer.add(withDefaults(flow));
+};
+
+/**
+ * Consumidor de una cola. `handlers` es { nombreDeTrabajo: async (job, token) => resultado }
+ * (`token` sirve para re-diferir el trabajo con `job.moveToDelayed`).
  * La carga util se valida antes de procesar: una invalida falla con UnrecoverableError (no se
  * reintenta: repetirla daria el mismo error).
  */
 export const createWorker = (queue, handlers, { concurrency = settings.worker.concurrency } = {}) => {
     assertEnabled();
-    const worker = new Worker(queue, async (job) => {
+    const worker = new Worker(queue, async (job, token) => {
         const handler = handlers[job.name];
         if (!handler) throw new UnrecoverableError(`Sin manejador para ${queue}/${job.name}`);
         try {
@@ -147,7 +170,7 @@ export const createWorker = (queue, handlers, { concurrency = settings.worker.co
             }
             throw error;
         }
-        return handler(job);
+        return handler(job, token);
     }, {
         connection: consumer(),
         prefix: settings.queue.prefix,
@@ -204,10 +227,11 @@ const closeWithin = (promise) => {
  * Idempotente. Una conexion que no esta lista se corta (`disconnect`) en vez de esperar su QUIT.
  */
 export const closeQueues = async () => {
-    const all = [...workers, ...events.values(), ...queues.values()];
+    const all = [...workers, ...events.values(), ...queues.values(), ...(flowProducer ? [flowProducer] : [])];
     workers.clear();
     events.clear();
     queues.clear();
+    flowProducer = null;
 
     const open = [...connections];
     connections.clear();
