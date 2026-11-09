@@ -10,7 +10,8 @@ const ping = (overrides = {}) => ({ v: CONTRACT_VERSION, sent_at: new Date().toI
 
 describe('contrato de colas', () => {
     it('declara las colas y sus trabajos', () => {
-        assert.deepEqual(queueNames(), ['system', 'simulacrum', 'simulacrum-grading']);
+        assert.deepEqual(queueNames(), ['system', 'simulacrum', 'simulacrum-grading', 'docs']);
+        assert.deepEqual(jobNames(QUEUES.DOCS), ['print-pdf', 'docx-pdf']);
         assert.deepEqual(jobNames(QUEUES.SYSTEM), ['ping']);
         assert.deepEqual(jobNames(QUEUES.SIMULACRUM), ['milestone', 'reconcile', 'close-window']);
         assert.deepEqual(jobNames(QUEUES.SIMULACRUM_GRADING), ['grade-attempt']);

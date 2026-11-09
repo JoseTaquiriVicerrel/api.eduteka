@@ -34,7 +34,7 @@ SERVICE="${SERVICE:-eduteka-api}"
 # Procesos de fondo del mismo codigo (puerto local de /health de cada uno). Solo se reinician los
 # que estan habilitados en este servidor (`systemctl is-enabled`); los demas se ignoran, asi el
 # script sirve igual antes y despues de instalar cada unidad.
-EXTRA_SERVICES="${EXTRA_SERVICES:-eduteka-worker:3003 eduteka-scheduler:3004 eduteka-realtime:3002}"
+EXTRA_SERVICES="${EXTRA_SERVICES:-eduteka-worker:3003 eduteka-scheduler:3004 eduteka-realtime:3002 eduteka-docs:3005}"
 LIVE_PORT="${LIVE_PORT:-3000}"
 SMOKE_PORT="${SMOKE_PORT:-3101}"
 KEEP="${KEEP:-5}"

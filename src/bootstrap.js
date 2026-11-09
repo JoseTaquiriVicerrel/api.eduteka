@@ -50,11 +50,12 @@ export const connectMongo = async () => {
  *
  * @param {string} name                       nombre para los logs ('api', 'worker'...)
  * @param {() => Promise<(() => Promise<void>) | void>} start   arranque propio; puede devolver su `stop`
- * @param {{ requireRedis?: boolean }} [options]
+ * @param {{ requireRedis?: boolean, mongo?: boolean }} [options]
  *   requireRedis: el proceso no sirve con el cliente de Redis en memoria (un worker que no comparte
  *   estado con nadie). Sin Redis real termina con exit(1) y systemd lo reintenta.
+ *   mongo: false para procesos que no usan la base (edk-docs).
  */
-export function runProcess(name, start, { requireRedis = false } = {}) {
+export function runProcess(name, start, { requireRedis = false, mongo = true } = {}) {
     installProcessHandlers();
 
     const boot = async () => {
@@ -62,7 +63,7 @@ export function runProcess(name, start, { requireRedis = false } = {}) {
             throw new Error('Redis no disponible: este proceso no funciona con el cliente en memoria');
         }
 
-        await connectMongo();
+        if (mongo) await connectMongo();
         const stop = await start();
 
         let closing = false;
@@ -80,7 +81,7 @@ export function runProcess(name, start, { requireRedis = false } = {}) {
             try {
                 if (typeof stop === 'function') await stop();
                 await closeQueues();
-                await mongoose.disconnect();
+                if (mongo) await mongoose.disconnect();
                 if (!redisClient.isMemoryFallback) await redisClient.quit();
             } catch (error) {
                 logger.error({ err: error.message, process: name }, 'Error al cerrar conexiones');

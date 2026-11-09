@@ -306,6 +306,23 @@ const settings = Object.freeze({
         cookieAuth: bool('REALTIME_COOKIE_AUTH', true),
     }),
 
+    // Documentos (src/docs.js): Chromium para HTML -> PDF y LibreOffice para DOCX -> PDF.
+    docs: Object.freeze({
+        healthPort: int('DOCS_HEALTH_PORT', 3005, { min: 1, max: 65535 }),
+        // Paginas impresas a la vez en el mismo Chromium. Cada una carga un documento entero en memoria.
+        concurrency: int('DOCS_CONCURRENCY', 2, { min: 1, max: 8 }),
+        // Chromium del sistema (puppeteer-core no descarga navegador). En produccion, chromium-browser.
+        chromiumPath: str('DOCS_CHROMIUM_PATH', isProduction ? '/usr/bin/chromium-browser' : null),
+        // --no-sandbox: lo exige Chromium corriendo como usuario de servicio sin espacios de nombres.
+        chromiumNoSandbox: bool('DOCS_CHROMIUM_NO_SANDBOX', isProduction),
+        // El navegador se reinicia cada N documentos: Chromium acumula memoria con el uso.
+        browserMaxJobs: int('DOCS_BROWSER_MAX_JOBS', 200, { min: 1, max: 100_000 }),
+        // LibreOffice (soffice). Sin definir se busca en las rutas habituales.
+        libreOfficePath: str('LIBREOFFICE_PATH', null),
+        // Tiempo maximo de una impresion o conversion.
+        timeoutMs: int('DOCS_TIMEOUT_MS', 90_000, { min: 5_000, max: 600_000 }),
+    }),
+
     // Reloj de los simulacros programados (src/scheduler.js). Ver modules/simulacra/scheduler.
     scheduler: Object.freeze({
         healthPort: int('SCHEDULER_HEALTH_PORT', 3004, { min: 1, max: 65535 }),

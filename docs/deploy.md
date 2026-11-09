@@ -366,6 +366,28 @@ Tres procesos del mismo código sustituyen al reloj y al socket del monolito:
 
 **Varias réplicas**: el scheduler no necesita líder (los hitos tienen id determinista y todo es idempotente). En realtime, cada réplica escucha el bus y emite a sus propios sockets; con transporte *polling* hace falta `ip_hash` en el upstream.
 
+### 5.3 Documentos fuera del monolito (Fase 2)
+
+`eduteka-docs` imprime los PDF (listas, exámenes, compendios) con **un solo Chromium** compartido y convierte el Word del material con LibreOffice. El monolito sigue armando el HTML (plantillas e imágenes incrustadas) y lo deja en el almacenamiento de objetos; por la cola solo viajan claves. El PDF vuelve por el mismo almacenamiento con una clave que es el hash del contenido: un documento ya impreso no se vuelve a imprimir.
+
+| Interruptor (monolito) | Valores |
+|---|---|
+| `DOCS_RENDERER` | `local` (por defecto, como hoy: Chromium en el proceso web) o `service` (edk-docs) |
+| `DOCS_FALLBACK_LOCAL` | `true` por defecto: si edk-docs o el Redis de colas no responden, se imprime en el proceso web |
+| `DOCS_WAIT_MS` | Espera máxima por documento (120 s) |
+
+**Corte**
+
+1. Paquetes del sistema: `sudo apt install chromium-browser libreoffice-writer` (y las fuentes de las plantillas Word).
+2. **Almacenamiento compartido**: en disco, el mismo `OBJECT_STORAGE_DIR` en la API y en el monolito (p. ej. `/var/lib/eduteka/objects`, con permisos de escritura para los dos usuarios); o `STORAGE_DRIVER=r2` con las mismas credenciales en ambos.
+3. En `/opt/eduteka/shared/.env`: `DOCS_CHROMIUM_PATH=/usr/bin/chromium-browser`. Instalar `deploy/eduteka-docs.service`, `enable --now`, reinstalar `deploy/sudoers-deploy`. `curl -s http://127.0.0.1:3005/health`.
+4. En el `.env` del monolito: `QUEUE_REDIS_*` (las mismas que la API), `OBJECT_STORAGE_DIR` o `R2_*`, y `DOCS_RENDERER=service`. Reiniciar el monolito.
+5. Comprobar: descargar el PDF de una lista, el de un examen desde el panel y la vista previa de un material. En el log de `eduteka-docs` aparece `PDF impreso` / `DOCX convertido a PDF`.
+
+**Vuelta atrás**: `DOCS_RENDERER=local` en el monolito y reiniciarlo.
+
+**Limpieza pendiente**: los PDF impresos quedan en `pdf/print/` y `pdf/docx/` del almacenamiento. En R2, una regla de ciclo de vida (p. ej. 30 días) sobre esos prefijos; en disco, todavía no hay poda automática.
+
 ## 6. Respaldos
 
 `/opt/eduteka/bin/backup.sh` (copia de `deploy/backup.sh`; lee el `.env`, así que corre como `root`) guarda Mongo, los comprobantes de pago y los avatares (no la caché de fórmulas, que se regenera).

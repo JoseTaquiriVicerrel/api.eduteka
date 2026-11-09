@@ -1,0 +1,55 @@
+# edk-docs: imprime PDF (Chromium) y convierte DOCX a PDF (LibreOffice) para el monolito y la API.
+# Mismo codigo y misma version que eduteka-api. No usa Mongo: Redis de colas y almacenamiento de objetos.
+#
+# Requisitos del sistema: chromium-browser y libreoffice-writer, con las fuentes de las plantillas.
+#
+#   sudo cp deploy/eduteka-docs.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now eduteka-docs
+#   journalctl -u eduteka-docs -f
+#   curl -s http://127.0.0.1:3005/health
+#
+# Necesita en /opt/eduteka/shared/.env: QUEUE_ENABLED=true, QUEUE_REDIS_*, DOCS_CHROMIUM_PATH y el mismo
+# almacenamiento que el monolito (OBJECT_STORAGE_DIR compartido en disco, o R2).
+# deploy/release.sh lo reinicia despues de la API si esta habilitado.
+
+[Unit]
+Description=Eduteka docs (PDF y Word, api_eduteka)
+After=network-online.target redis-queue.service
+Wants=network-online.target redis-queue.service
+
+[Service]
+Type=simple
+User=eduteka
+Group=eduteka
+WorkingDirectory=/opt/eduteka/current
+EnvironmentFile=/opt/eduteka/shared/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node src/docs.js
+
+# SIGTERM: deja de tomar trabajos, espera los que estan en curso y cierra (fuerza la salida a los 10 s;
+# un trabajo cortado vuelve a la cola como "stalled" y lo retoma el siguiente arranque).
+KillSignal=SIGTERM
+TimeoutStopSec=20
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+LimitNOFILE=65535
+# Chromium y LibreOffice: el techo protege al resto del droplet si un documento se dispara.
+MemoryMax=1500M
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/eduteka
+
+[Install]
+WantedBy=multi-user.target

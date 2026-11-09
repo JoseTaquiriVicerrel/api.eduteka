@@ -24,12 +24,19 @@ export const QUEUES = Object.freeze({
     SIMULACRUM: 'simulacrum',
     // Calificacion de cada intento abierto al cerrar la ventana (lo consume src/worker.js).
     SIMULACRUM_GRADING: 'simulacrum-grading',
+    // Documentos (lo consume src/docs.js): HTML -> PDF con Chromium y DOCX -> PDF con LibreOffice.
+    // Lo usan el monolito (listas, examenes, compendios, materiales) y, mas adelante, la API.
+    DOCS: 'docs',
 });
 
 const Iso = Type.String({ minLength: 10, maxLength: 40 });
 // Los _id son cadenas (UUID o nanoid), no ObjectId.
 const Id = Type.String({ minLength: 1, maxLength: 64, pattern: '^[A-Za-z0-9_-]+$' });
 const MILESTONE_KINDS = ['close', 'start', 'end', 'results'];
+// Clave del almacenamiento de objetos (mismas reglas que assertValidKey de #Libs/object_storage.js).
+// Los documentos no viajan en la cola: van al almacenamiento y aqui solo va su clave.
+// Sin segmentos `.` ni `..` (el lookahead): el juego de caracteres por si solo los dejaria pasar.
+const ObjectKey = Type.String({ minLength: 1, maxLength: 512, pattern: '^(?!(?:.*/)?\\.{1,2}(?:/|$))[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$' });
 
 const JOBS = Object.freeze({
     [QUEUES.SYSTEM]: Object.freeze({
@@ -61,6 +68,25 @@ const JOBS = Object.freeze({
             v: Type.Literal(CONTRACT_VERSION),
             simulacrum_id: Id,
             user_simulacrum_id: Id,
+        }, { additionalProperties: false }),
+    }),
+    [QUEUES.DOCS]: Object.freeze({
+        // Imprime un HTML ya armado (plantilla compilada, imagenes y fuentes incrustadas) a PDF A4.
+        // `output_key` es determinista (hash del contenido): si ya existe, no se vuelve a imprimir.
+        'print-pdf': Type.Object({
+            v: Type.Literal(CONTRACT_VERSION),
+            html_key: ObjectKey,
+            output_key: ObjectKey,
+            // Titulo de la cabecera. Texto plano: se escapa antes de ir al HTML de la cabecera.
+            title: Type.String({ maxLength: 300 }),
+            header_footer: Type.Boolean(),
+            watermark: Type.Boolean(),
+        }, { additionalProperties: false }),
+        // Convierte un .docx (material del docente) a PDF con LibreOffice.
+        'docx-pdf': Type.Object({
+            v: Type.Literal(CONTRACT_VERSION),
+            docx_key: ObjectKey,
+            output_key: ObjectKey,
         }, { additionalProperties: false }),
     }),
 });

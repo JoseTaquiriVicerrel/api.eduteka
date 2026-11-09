@@ -6,3 +6,4 @@ deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart eduteka-api
 deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart eduteka-worker
 deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart eduteka-scheduler
 deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart eduteka-realtime
+deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart eduteka-docs
