@@ -1,4 +1,8 @@
 import QuestionModel from '#Models/question_model.js';
+import ExamModel from '#Models/exam_model.js';
+import UserModel from '#Models/user_model.js';
+import UserAnswerModel from '#Models/user_answer_model.js';
+import { generateHybridSlug } from '#Libs/slug_utils.js';
 import QuestionReportModel from '#Models/question_report_model.js';
 import { ApiError } from '#Libs/api_error.js';
 import { setNX } from '#Libs/kv.js';
@@ -9,7 +13,7 @@ import {
 } from '#Serializers/question.serializer.js';
 import { assertQuota, consumeQuota } from './answer.quota.js';
 import { recordAnswers } from './answer.recorder.js';
-import { practicableFilter, resolveArea } from './question.filters.js';
+import { OFFICIAL_BANK_FILTER, practicableFilter, resolveArea } from './question.filters.js';
 
 // --- Listado ----------------------------------------------------------------
 
@@ -24,10 +28,10 @@ const cleanSearchText = (value) => String(value ?? '')
     .slice(0, MAX_SEARCH_LENGTH);
 
 // `user` puede ser null (visitante): solo las cuentas con view_answers_directly reciben la clave.
-export const listQuestions = async ({ area, topic, difficulty, institution, q, page, limit, user = null }) => {
+export const listQuestions = async ({ area, topic, difficulty, institution, q, page, limit, user = null, client = 'app' }) => {
     const answers = canViewAnswersDirectly(user);
     const areaId = area ? (await resolveArea(area))._id : null;
-    const filter = practicableFilter({ areaId, topic, difficulty, institution });
+    const filter = practicableFilter({ areaId, topic, difficulty, institution, requireKey: client !== 'web' });
 
     // Busqueda de texto: usa el indice `topic_text_question_text` de la coleccion,
     // que existe en produccion aunque ningun schema lo declare.
@@ -117,8 +121,10 @@ export const reportQuestion = async ({ userId, questionId, type, description }) 
     const exists = await QuestionModel.exists({ _id: questionId, ...practicableFilter() });
     if (!exists) throw ApiError.notFound('No encontramos esa pregunta.');
 
-    const previous = await QuestionReportModel.exists({ question_id: questionId, user_id: userId, type });
-    if (previous) throw ApiError.conflict('Ya registraste un reporte de este tipo sobre esta pregunta.');
+    // Solo bloquea mientras el anterior siga sin revisar (igual que el monolito): resuelto o rechazado,
+    // el usuario puede volver a reportar si el error persiste.
+    const previous = await QuestionReportModel.exists({ question_id: questionId, user_id: userId, type, status: 'Pendiente' });
+    if (previous) throw ApiError.conflict('Ya registraste un reporte de este tipo sobre esta pregunta, y aún está pendiente de revisión.');
 
     const report = await QuestionReportModel.create({
         question_id: questionId,
@@ -128,4 +134,101 @@ export const reportQuestion = async ({ userId, questionId, type, description }) 
     });
 
     return { id: report._id, status: report.status };
+};
+
+// --- Detalle por URL (solo web) ----------------------------------------------
+
+const EXAM_FIELDS = { title: 1, slug: 1, image_post: 1, institution: 1 };
+
+// Resuelve /preguntas/<area>/<uid> y las URLs antiguas que siguen indexadas, igual que
+// detailQuestionController del monolito: uid o slug completo, slug de una pieza, o _id. Solo el banco
+// oficial: `uid` son 6 caracteres enumerables y no puede dar las preguntas privadas de un docente.
+// El `$type` del slug es para que Mongo use el indice parcial.
+const findByPath = async (parts) => {
+    if (parts.length === 2) {
+        const [part1, part2] = parts;
+        return QuestionModel.findOne({
+            $or: [{ uid: part2 }, { slug: { $eq: `${part1}/${part2}`, $type: 'string' } }],
+            ...OFFICIAL_BANK_FILTER,
+        }).lean().exec();
+    }
+    const [part1] = parts;
+    return (await QuestionModel.findOne({ slug: { $eq: part1, $type: 'string' }, ...OFFICIAL_BANK_FILTER }).lean().exec())
+        ?? QuestionModel.findOne({ _id: part1, ...OFFICIAL_BANK_FILTER }).lean().exec();
+};
+
+const findExam = (question) => {
+    if (question.exam) return ExamModel.findOne({ title: question.exam }, EXAM_FIELDS).lean().exec();
+    const first = question.iexam?.[0]?.id_exam;
+    return first ? ExamModel.findById(first, EXAM_FIELDS).lean().exec() : null;
+};
+
+/**
+ * Pagina publica de una pregunta. Devuelve `canonical` (la URL buena: si no coincide con la pedida, la
+ * web redirige), la pregunta, su examen, autor y fuente, y la respuesta previa del usuario. A diferencia
+ * de GET /preguntas/:id sirve tambien las verificadas sin clave (`can_answer: false`).
+ */
+export const getQuestionByPath = async (path, user = null) => {
+    const parts = String(path ?? '').split('/').filter(Boolean);
+    if (parts.length < 1 || parts.length > 2) throw ApiError.notFound('No encontramos esa pregunta.');
+
+    const question = await findByPath(parts);
+    if (!question) throw ApiError.notFound('No encontramos esa pregunta.');
+
+    const answers = canViewAnswersDirectly(user);
+    const canonical = question.uid ? generateHybridSlug(question.area, question.uid) : (question.slug ?? parts.join('/'));
+
+    const [exam, author, previous] = await Promise.all([
+        findExam(question),
+        question.created_by ? UserModel.findById(question.created_by, { username: 1 }).lean().exec() : null,
+        user && !answers ? UserAnswerModel.findOne({ question_id: question._id, user_id: user._id }).lean().exec() : null,
+    ]);
+
+    const hasKey = Boolean(question.rpta);
+    const community = buildCommunity(question);
+    const serialized = serializerFor(answers)(question);
+
+    return {
+        canonical,
+        question: { ...serialized, slug: canonical, created_by: author?.username ?? null, source: question.source ?? 'Web' },
+        can_answer: Boolean(question.verified) && hasKey,
+        community: answers || previous ? community : null,
+        my_answer: previous && hasKey
+            ? serializeAnswerResult({ question, selected: previous.answer, community })
+            : previous ? { selected: previous.answer } : null,
+        exam: exam
+            ? { title: exam.title ?? null, slug: exam.slug ?? null, image_post: exam.image_post ?? null, institution_image: exam.institution?.image ?? null }
+            : null,
+    };
+};
+
+// --- Mis reportes -------------------------------------------------------------
+
+const plainSummary = (html) => {
+    const text = String(html ?? '').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+    return text.length > 100 ? `${text.slice(0, 100)}...` : text;
+};
+
+/** Reportes del usuario, el mas reciente primero (hasta 100), con un resumen de la pregunta. */
+export const listMyReports = async (userId) => {
+    const reports = await QuestionReportModel.find({ user_id: userId }).sort({ created_at: -1 }).limit(100).lean().exec();
+    const questions = await QuestionModel.find(
+        { _id: { $in: [...new Set(reports.map((report) => report.question_id))] } },
+        { question: 1, slug: 1 },
+    ).lean().exec();
+    const byId = new Map(questions.map((question) => [question._id, question]));
+
+    return reports.map((report) => {
+        const question = byId.get(report.question_id);
+        return {
+            id: report._id,
+            type: report.type,
+            status: report.status,
+            description: report.description,
+            admin_note: report.adminNote ?? null,
+            created_at: report.created_at ?? null,
+            reviewed_at: report.reviewed_at ?? null,
+            question: question ? { id: question._id, slug: question.slug ?? null, summary: plainSummary(question.question) } : null,
+        };
+    });
 };

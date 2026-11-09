@@ -116,9 +116,14 @@ export const assessVoucher = async (aiData, expectedAmount, {
  * Lee y evalua un comprobante. `release()` libera la reserva del numero de operacion:
  * el llamador la invoca SIEMPRE (en un finally), despues de guardar el pago.
  *
- * @returns {Promise<{ aiData: object|null, approved: boolean, reason: string|null, release: () => Promise<void> }>}
+ * `alternatives`: otros montos validos, en orden. Si el comprobante no cuadra con
+ * `expectedAmount` pero si con uno de ellos, se aprueba y `matchedAmount` dice cual. Lo usa la
+ * mejora con descuento: quien paga el precio completo (p. ej. desde una version de la app que
+ * aun no muestra la diferencia) no queda en revision.
+ *
+ * @returns {Promise<{ aiData: object|null, approved: boolean, reason: string|null, matchedAmount: number|null, release: () => Promise<void> }>}
  */
-export const verifyVoucher = async (buffer, expectedAmount) => {
+export const verifyVoucher = async (buffer, expectedAmount, { alternatives = [] } = {}) => {
     const aiData = await readVoucher(buffer);
 
     let claimKey = null;
@@ -135,8 +140,13 @@ export const verifyVoucher = async (buffer, expectedAmount) => {
     };
 
     try {
-        const { approved, reason } = await assessVoucher(aiData, expectedAmount, { reused });
-        return { aiData, approved, reason, release };
+        const first = await assessVoucher(aiData, expectedAmount, { reused });
+        if (first.approved) return { aiData, ...first, matchedAmount: expectedAmount, release };
+        for (const amount of alternatives) {
+            const other = await assessVoucher(aiData, amount, { reused });
+            if (other.approved) return { aiData, ...other, matchedAmount: amount, release };
+        }
+        return { aiData, ...first, matchedAmount: null, release };
     } catch (error) {
         await release();
         throw error;

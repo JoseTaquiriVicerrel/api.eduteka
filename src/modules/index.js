@@ -3,6 +3,7 @@ import appVersion from '#Middlewares/app_version.js';
 import identifyClient from '#Middlewares/client.js';
 import maintenance from '#Middlewares/maintenance.js';
 import { rateLimit } from '#Middlewares/rate_limit.js';
+import admissionRoutes from './admission/admission.routes.js';
 import authRoutes from './auth/auth.routes.js';
 import catalogRoutes from './catalog/catalog.routes.js';
 import downloadRoutes from './downloads/download.routes.js';
@@ -39,6 +40,7 @@ export function buildV1Router() {
 
     router.use(metaRoutes);
     router.use('/auth', authRoutes);
+    router.use('/admision', admissionRoutes);
     router.use(catalogRoutes);
     router.use('/preguntas', mathResponse, questionRoutes);
     router.use('/examenes', mathResponse, examRoutes);

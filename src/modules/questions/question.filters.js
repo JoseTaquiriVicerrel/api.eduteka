@@ -7,7 +7,7 @@ import { ApiError } from '#Libs/api_error.js';
 // preguntas anteriores al campo `origin` no lo tienen y tambien son oficiales,
 // por eso se filtra por `$ne` y no por `origin: 'Oficial'` (mismo criterio que
 // OFFICIAL_BANK_FILTER del monolito).
-const OFFICIAL_BANK_FILTER = Object.freeze({ origin: { $ne: 'Docente' } });
+export const OFFICIAL_BANK_FILTER = Object.freeze({ origin: { $ne: 'Docente' } });
 
 /**
  * Filtro de una pregunta PRACTICABLE: oficial, verificada y con clave. Una
@@ -17,8 +17,11 @@ const OFFICIAL_BANK_FILTER = Object.freeze({ origin: { $ne: 'Docente' } });
  * No exige `state: true`: el monolito no lo usa para servir preguntas y el campo
  * es `false` por defecto, asi que exigirlo podria ocultar casi todo el banco.
  */
-export const practicableFilter = ({ areaId, topic, difficulty, institution, withResolution = false } = {}) => {
-    const filter = { ...OFFICIAL_BANK_FILTER, verified: true, rpta: { $exists: true, $ne: null } };
+export const practicableFilter = ({ areaId, topic, difficulty, institution, withResolution = false, requireKey = true } = {}) => {
+    const filter = { ...OFFICIAL_BANK_FILTER, verified: true };
+    // La web (req.client === 'web') tambien sirve las verificadas sin clave, como el monolito: son URLs
+    // ya indexadas. No se pueden responder; la app sigue sin verlas.
+    if (requireKey) filter.rpta = { $exists: true, $ne: null };
 
     if (areaId) filter.area_id = areaId;
     if (topic) filter.topic = topic;
@@ -34,7 +37,8 @@ export const practicableFilter = ({ areaId, topic, difficulty, institution, with
  * Devuelve el area o lanza 404.
  */
 export const resolveArea = async (value) => {
-    const area = await AreaModel.findOne({ $or: [{ _id: value }, { slug: value }] }, { _id: 1, name: 1, slug: 1 }).lean().exec();
+    // Tambien por nombre exacto: los enlaces indexados del monolito usan `?area=QUÍMICA`.
+    const area = await AreaModel.findOne({ $or: [{ _id: value }, { slug: value }, { name: value }] }, { _id: 1, name: 1, slug: 1 }).lean().exec();
     if (!area) throw ApiError.notFound('No encontramos esa área.');
     return area;
 };

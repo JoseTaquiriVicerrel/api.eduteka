@@ -28,6 +28,8 @@ export const PUBLIC_QUESTION_PROJECTION = Object.freeze({
     difficulty: 1,
     type: 1,
     dependence: 1,
+    slug: 1,
+    exam: 1,
 });
 
 /**
@@ -54,6 +56,8 @@ export const serializeQuestion = (question) => ({
     topic: question.topic ?? null,
     difficulty: question.difficulty ?? null,
     type: question.type ?? null,
+    slug: question.slug ?? null,
+    exam: question.exam ?? null,
     // Texto de lectura compartido por varias preguntas (si lo hay).
     context: serializeContext(question.dependence),
 });

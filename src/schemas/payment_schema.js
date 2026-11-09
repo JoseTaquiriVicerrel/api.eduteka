@@ -14,6 +14,19 @@ const paymentSchema = new mongoose.Schema({
     ai_analysis: Object,
     status_reason: String,
     transaction_type: String, // "Compra" "Renovación" "Actualización" "purchase", "renewal", "upgrade"
+    // Mejora de Institucional a plan general cobrando la diferencia (#Libs/plan_change.js).
+    // `amount` es lo cobrado; aqui queda el calculo. Si existe, la activacion corre el plan
+    // desde hoy por su duracion completa en vez de sumarle los dias restantes.
+    proration: {
+        type: new mongoose.Schema({
+            from_plan: String,
+            remaining_days: Number,
+            regular_price: Number,
+            credit: Number,
+            amount: Number,
+        }, { _id: false }),
+        default: undefined,
+    },
     payment_date: Date,
 }, {
     timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },

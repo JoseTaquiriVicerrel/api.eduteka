@@ -31,3 +31,5 @@ export const ReportBody = Type.Object({
     // Debe tener algun caracter visible; el servidor recorta los espacios.
     description: Type.String({ minLength: 1, maxLength: 500, pattern: '\\S' }),
 }, strict);
+
+export const PathQuery = Type.Object({ path: Type.String({ minLength: 1, maxLength: 300 }) }, strict);

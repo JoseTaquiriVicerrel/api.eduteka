@@ -99,6 +99,7 @@ describe('comprobantes: flujos', () => {
         await db().collection('suscriptions').insertMany([
             { _id: 'plan-anual', name: '1 año', slug: 'anual', price: 60, duration_months: 12, state: true },
             { _id: 'plan-semestral', name: '6 meses', slug: 'semestral', price: 40, duration_months: 6, state: true },
+            { _id: 'plan-inst', name: 'Institucional', slug: 'institucional', price: 15, duration_months: 6, state: true, restricted_to_institution: true },
         ]);
         png = await new Jimp(40, 40, 0x8844ccff).getBufferAsync(Jimp.MIME_PNG);
     });
@@ -221,6 +222,56 @@ describe('comprobantes: flujos', () => {
             assert.equal(new Date(doc.suscription.start_date).getTime(), end.getTime());
             assert.equal(doc.suscription_history.length, 1);
             assert.equal(doc.suscription_history[0].payment_id, 'pago-anterior');
+        });
+
+        // Institucional vigente con ~170 de ~181 dias: la diferencia hacia el Semestral (S/ 40) ronda S/ 26.
+        const withInstitutional = async () => {
+            const user = await createUser(ctx);
+            const end = new Date(Date.now() + 170 * DAY);
+            await ctx.User.updateOne({ _id: user.session.user.id }, { $set: { suscription: { name: 'Institucional', status: 'activo', restricted_to_institution: true, institution_id: 'inst-unmsm', start_date: new Date(Date.now() - 11 * DAY), end_date: end } } });
+            const detail = await request(ctx.app).get('/api/v1/suscripciones/semestral').set(bearer(user)).expect(200);
+            return { user, end, due: detail.body.data.amount_due };
+        };
+
+        it('mejora con descuento: comprobante por la diferencia, plan general desde hoy por 6 meses', async () => {
+            const { user, due } = await withInstitutional();
+            assert.ok(due < 40);
+            memoryReader.next = voucher(due);
+            const res = await subscribe(user, 'semestral').expect(201);
+            assert.equal(res.body.data.status, 'paid');
+            assert.equal(res.body.data.amount, due);
+
+            const doc = await ctx.User.findById(user.session.user.id).lean();
+            assert.equal(doc.suscription.name, '6 meses');
+            assert.equal(doc.suscription.restricted_to_institution, undefined);
+            assert.ok(Date.now() - new Date(doc.suscription.start_date).getTime() < 60 * 1000);
+            const months = (new Date(doc.suscription.end_date) - new Date(doc.suscription.start_date)) / (30 * DAY);
+            assert.ok(months > 5.8 && months < 6.3, `meses ${months}`);
+        });
+
+        it('mejora con descuento pagada a precio completo (app vieja): se aprueba sin descuento y suma los dias', async () => {
+            const { user, end } = await withInstitutional();
+            memoryReader.next = voucher(40);
+            const res = await subscribe(user, 'semestral').expect(201);
+            assert.equal(res.body.data.status, 'paid');
+            assert.equal(res.body.data.amount, 40);
+            assert.equal(res.body.data.proration, null);
+
+            const doc = await ctx.User.findById(user.session.user.id).lean();
+            const expectedEnd = new Date(end);
+            expectedEnd.setMonth(expectedEnd.getMonth() + 6);
+            assert.equal(new Date(doc.suscription.end_date).getTime(), expectedEnd.getTime());
+        });
+
+        it('mejora con descuento y monto que no cuadra con ninguno: pendiente, con la diferencia como esperado', async () => {
+            const { user, due } = await withInstitutional();
+            memoryReader.next = voucher(10);
+            const res = await subscribe(user, 'semestral').expect(201);
+            assert.equal(res.body.data.status, 'pending');
+            const payment = await db().collection('payments').findOne({ _id: res.body.data.id });
+            assert.equal(payment.amount, due);
+            assert.match(payment.status_reason, new RegExp(`esperado ${due}\.00`));
+            assert.equal(payment.proration.amount, due);
         });
 
         it('comprobante ya usado en un pedido: el pago queda pendiente', async () => {

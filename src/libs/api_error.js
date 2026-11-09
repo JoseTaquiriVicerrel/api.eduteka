@@ -105,6 +105,11 @@ export class ApiError extends Error {
         return new ApiError(409, 'ATTEMPT_ACTIVE_ELSEWHERE', message, { extra: { holder } });
     }
 
+    // Cambio a un plan que reduciria el acceso vigente (#Libs/plan_change.js).
+    static planChangeBlocked(message) {
+        return new ApiError(409, 'PLAN_CHANGE_BLOCKED', message);
+    }
+
     static conflict(message = 'La operación entra en conflicto con el estado actual.') {
         return new ApiError(409, 'CONFLICT', message);
     }

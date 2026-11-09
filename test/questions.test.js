@@ -316,6 +316,23 @@ describe('banco de preguntas', () => {
             await report('q2', { type: 'Pregunta', description: 'Enunciado confuso' }).expect(201);
         });
 
+        it('tras revisarse el reporte, el mismo tipo se puede repetir', async () => {
+            const first = await report('q8', { type: 'Respuesta', description: 'Clave dudosa' }).expect(201);
+            await ctx.mongoose.connection.db.collection('questionreports').updateOne({ _id: first.body.data.id }, { $set: { status: 'Resuelto' } });
+            await report('q8', { type: 'Respuesta', description: 'Sigue mal' }).expect(201);
+        });
+
+        it('GET /preguntas/mis-reportes lista solo los propios, con resumen de la pregunta', async () => {
+            await request(ctx.app).get('/api/v1/preguntas/mis-reportes').expect(401);
+            const res = await request(ctx.app).get('/api/v1/preguntas/mis-reportes').set(bearer(student)).expect(200);
+            assert.ok(res.body.data.length >= 2);
+            assert.ok(res.body.data.every((item) => ['Pendiente', 'Revisado', 'Resuelto', 'Rechazado'].includes(item.status)));
+            assert.ok(res.body.data.every((item) => item.question === null || typeof item.question.summary === 'string'));
+            const other = await request(ctx.app).get('/api/v1/preguntas/mis-reportes').set(bearer(teacher)).expect(200);
+            const ids = new Set(res.body.data.map((item) => item.id));
+            assert.ok(other.body.data.every((item) => !ids.has(item.id)));
+        });
+
         it('valida tipo y descripcion', async () => {
             await report('q3', { type: 'Otro', description: 'x' }).expect(422);
             await report('q3', { type: 'Pregunta', description: '   ' }).expect(422);

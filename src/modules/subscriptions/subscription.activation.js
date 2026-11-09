@@ -4,11 +4,13 @@ import { settings } from '#Config/settings.js';
 import { sendMail } from '#Libs/mailer.js';
 import { buildActiveSuscription } from '#Libs/suscription_activation.js';
 import { appendSuscriptionHistoryEntry, buildSuscriptionHistoryEntry } from '#Libs/suscription_history.js';
+import { periodFor } from '#Libs/plan_change.js';
 
 // Activacion de un plan pagado. Port de #Services/suscription-activation.service.js del
 // monolito, con las mismas reglas (si cambian alla, cambiar aqui):
-//  - 'Renovar'/'Actualizar' encadenan el periodo nuevo al vigente si le queda tiempo; si
-//    ya vencio, arranca hoy. Se archiva el ciclo anterior en `suscription_history` sin
+//  - Fechas en #Libs/plan_change.js: renovar el mismo plan vigente se encadena a su fin;
+//    cambiar a un plan que no reduce el acceso rige desde hoy y suma los dias que
+//    quedaban; con el plan vencido, arranca hoy. Se archiva el ciclo anterior en `suscription_history` sin
 //    duplicar (#Libs/suscription_history.js, copia del monolito).
 //  - Todo plan con duracion recibe fecha de fin.
 //  - Ciclo nuevo, avisos nuevos: se reinician los flags del cron de vencimiento.
@@ -19,16 +21,17 @@ const PAID_PAYMENT_STATUS = ['Completo', 'Completado'];
 const RENEWAL_TRANSACTION_TYPES = ['Renovar', 'Actualizar'];
 
 export const getStartAndEndDateSuscription = async (payment, plan, user, now = new Date()) => {
-    let startDateSuscription = now;
-    let endDateSuscription = null;
     const suscriptionHistory = [];
+    const { start: startDateSuscription, end: endDateSuscription } = periodFor({
+        transactionType: payment.transaction_type,
+        current: user.suscription,
+        plan,
+        now,
+        // Mejora cobrando la diferencia: los dias restantes ya se descontaron.
+        prorated: Boolean(payment.proration),
+    });
 
     if (RENEWAL_TRANSACTION_TYPES.includes(payment.transaction_type)) {
-        const currentEndDate = user.suscription?.end_date ? new Date(user.suscription.end_date) : null;
-        if (currentEndDate && !Number.isNaN(currentEndDate.valueOf()) && currentEndDate > now) {
-            startDateSuscription = currentEndDate;
-        }
-
         // El ultimo pago pagado que NO es el que se esta activando.
         const oldPayment = await PaymentModel.findOne({ _id: { $ne: payment._id }, user_id: user._id, status: { $in: PAID_PAYMENT_STATUS } })
             .sort({ created_at: -1 })
@@ -36,10 +39,6 @@ export const getStartAndEndDateSuscription = async (payment, plan, user, now = n
             .exec();
         // Sin pago previo (plan asignado a mano, pago depurado) no hay ciclo que archivar.
         if (oldPayment) suscriptionHistory.push(buildSuscriptionHistoryEntry(user.suscription, oldPayment));
-    }
-
-    if (plan.duration_months) {
-        endDateSuscription = new Date(new Date(startDateSuscription).setMonth(new Date(startDateSuscription).getMonth() + plan.duration_months));
     }
 
     return { startDateSuscription, endDateSuscription, suscriptionHistory };

@@ -142,9 +142,34 @@ describe('suscripciones', () => {
             const end = new Date(Date.now() + 10 * DAY);
             await setPlan(user, { name: '1 año', status: 'activo', end_date: end });
             const res = await request(ctx.app).get('/api/v1/suscripciones/anual').set(bearer(user)).expect(200);
+            const newEnd = new Date(end);
+            newEnd.setMonth(newEnd.getMonth() + 12);
             assert.deepEqual(res.body.data.renewal, {
-                current_plan: '1 año', same_plan: true, running: true, current_end_date: end.toISOString(), starts_at: end.toISOString(),
+                current_plan: '1 año', same_plan: true, running: true, upgrade_now: false,
+                current_end_date: end.toISOString(), starts_at: end.toISOString(), new_end_date: newEnd.toISOString(), blocked_message: null,
+                prorated: false, credit: 0, remaining_days: null,
             });
+        });
+
+        it('plan general vigente -> otro plan general: el detalle avisa que rige desde hoy y suma los dias', async () => {
+            const user = await createUser(ctx);
+            const end = new Date(Date.now() + 40 * DAY);
+            await setPlan(user, { name: '6 meses', status: 'activo', end_date: end });
+            const res = await request(ctx.app).get('/api/v1/suscripciones/anual').set(bearer(user)).expect(200);
+            const newEnd = new Date(end);
+            newEnd.setMonth(newEnd.getMonth() + 12);
+            assert.equal(res.body.data.renewal.upgrade_now, true);
+            assert.equal(res.body.data.renewal.prorated, false);
+            assert.equal(res.body.data.renewal.starts_at, null);
+            assert.equal(res.body.data.renewal.new_end_date, newEnd.toISOString());
+            assert.equal(res.body.data.renewal.blocked_message, null);
+        });
+
+        it('plan general vigente -> institucional: el detalle explica por que aun no se puede', async () => {
+            const user = await createUser(ctx);
+            await setPlan(user, { name: '6 meses', status: 'activo', end_date: new Date(Date.now() + 40 * DAY) });
+            const res = await request(ctx.app).get('/api/v1/suscripciones/institucional').set(bearer(user)).expect(200);
+            assert.match(res.body.data.renewal.blocked_message, /cuando termine/);
         });
     });
 
@@ -218,6 +243,62 @@ describe('suscripciones', () => {
             assert.equal(upgraded.body.data.transaction_type, 'Actualizar');
             const log = await eventually(() => ctx.mongoose.connection.db.collection('activitylogs').findOne({ target_id: upgraded.body.data.id }));
             assert.equal(log.action, 'subscription.renewal_requested');
+        });
+
+        it('no se admite un cambio que reduce el acceso vigente: 409 PLAN_CHANGE_BLOCKED y sin pago', async () => {
+            // Plan general vigente -> institucional.
+            const general = await createUser(ctx);
+            await setPlan(general, { name: '6 meses', status: 'activo', end_date: new Date(Date.now() + 40 * DAY) });
+            const narrowed = await pay(general, '/institucional/suscribirme', { institution: 'inst-unmsm' }).expect(409);
+            assert.equal(narrowed.body.error.code, 'PLAN_CHANGE_BLOCKED');
+            assert.equal(await payments().countDocuments({ user_id: general.session.user.id }), 0);
+
+            // Institucional vigente -> otra institucion.
+            const inst = await createUser(ctx);
+            await setPlan(inst, { name: 'Institucional', status: 'activo', restricted_to_institution: true, institution_id: 'inst-otra', end_date: new Date(Date.now() + 40 * DAY) });
+            const other = await pay(inst, '/institucional/suscribirme', { institution: 'inst-unmsm' }).expect(409);
+            assert.equal(other.body.error.code, 'PLAN_CHANGE_BLOCKED');
+
+            // Con el plan general ya vencido si se puede.
+            const expired = await createUser(ctx);
+            await setPlan(expired, { name: '6 meses', status: 'Finalizado', end_date: new Date(Date.now() - DAY) });
+            await pay(expired, '/institucional/suscribirme', { institution: 'inst-unmsm' }).expect(201);
+        });
+
+        it('Institucional vigente -> plan general: se cobra la diferencia y el pago guarda el calculo', async () => {
+            const user = await createUser(ctx);
+            // Le quedan 170 de ~181 dias del ciclo (~S/ 14 de S/ 15) y el Semestral cuesta S/ 40.
+            const end = new Date(Date.now() + 170 * DAY);
+            await setPlan(user, { name: 'Institucional', status: 'activo', restricted_to_institution: true, institution_id: 'inst-unmsm', end_date: end });
+
+            const detail = await request(ctx.app).get('/api/v1/suscripciones/semestral').set(bearer(user)).expect(200);
+            const { amount_due: amountDue, renewal } = detail.body.data;
+            assert.equal(renewal.prorated, true);
+            assert.ok(amountDue >= 25 && amountDue <= 27, `amount_due ${amountDue}`);
+            assert.equal(renewal.credit, 40 - amountDue);
+            // Sin dias sumados: vence a los 6 meses de hoy.
+            assert.ok(new Date(renewal.new_end_date) < new Date(Date.now() + 186 * DAY));
+
+            const paid = await pay(user, '/semestral/suscribirme').expect(201);
+            assert.equal(paid.body.data.amount, amountDue);
+            assert.equal(paid.body.data.proration.regular_price, 40);
+            assert.equal(paid.body.data.proration.amount, amountDue);
+            const stored = await payments().findOne({ _id: paid.body.data.id });
+            assert.equal(stored.amount, amountDue);
+            assert.equal(stored.proration.credit, 40 - amountDue);
+        });
+
+        it('sin descuento el detalle cobra el precio: compra nueva y cambio entre planes generales', async () => {
+            const fresh = await createUser(ctx);
+            const first = await request(ctx.app).get('/api/v1/suscripciones/semestral').set(bearer(fresh)).expect(200);
+            assert.equal(first.body.data.amount_due, 40);
+
+            const general = await createUser(ctx);
+            await setPlan(general, { name: '6 meses', status: 'activo', end_date: new Date(Date.now() + 40 * DAY) });
+            const upgrade = await request(ctx.app).get('/api/v1/suscripciones/anual').set(bearer(general)).expect(200);
+            assert.equal(upgrade.body.data.amount_due, 60);
+            assert.equal(upgrade.body.data.renewal.prorated, false);
+            assert.equal(upgrade.body.data.renewal.upgrade_now, true);
         });
 
         it('/renovar ya no existe: renovar es pagar otra vez el plan', async () => {

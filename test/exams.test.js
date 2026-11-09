@@ -178,8 +178,10 @@ describe('examenes', () => {
             assertNoAnswers(res.body);
         });
 
-        it('un token invalido se trata como anonimo: ficha sin preguntas', async () => {
-            const res = await request(ctx.app).get(`${API}/examenes/unmsm-2025-i`).set('Authorization', 'Bearer basura').expect(200);
+        it('un token invalido/vencido da 401 (la app renueva y reintenta); sin token sigue siendo anonimo', async () => {
+            await request(ctx.app).get(`${API}/examenes/unmsm-2025-i`).set('Authorization', 'Bearer basura').expect(401);
+
+            const res = await request(ctx.app).get(`${API}/examenes/unmsm-2025-i`).expect(200);
             assert.deepEqual(res.body.data.items, []);
             assert.equal(res.body.data.access.login_required, true);
         });

@@ -11,6 +11,7 @@ import { MIN_EXAMS_INSTITUTION } from '#Libs/institution_suscription.js';
 import { del, getJson, setJson, setNX } from '#Libs/kv.js';
 import { sendMail } from '#Libs/mailer.js';
 import { decoratePlans } from '#Libs/suscription_plans.js';
+import { isImmediateUpgrade, periodFor, planChangeBlock, planChangeBlockMessage, prorationFor, runningEnd } from '#Libs/plan_change.js';
 import { absoluteUrl } from '#Libs/urls.js';
 import { logUserActivity } from '#Libs/user_activity.js';
 import { hasQueuedRenewal, serializeSuscription } from '#Serializers/user.serializer.js';
@@ -131,21 +132,52 @@ const listEligibleInstitutions = async () => {
 
 const pendingPaymentOf = (user) => PaymentModel.findOne({ user_id: user._id, status: 'Pendiente' }).sort({ created_at: -1 }).lean().exec();
 
+/** Fecha corta en hora de Lima, para los mensajes (mismo formato que la web). */
+const limaDate = (date) => new Date(date).toLocaleDateString('es-PE', { timeZone: 'America/Lima', year: 'numeric', month: 'numeric', day: 'numeric' });
+
 /**
- * Aviso de renovacion: si al plan actual le queda tiempo, el periodo nuevo arranca cuando
- * termine; si no, el dia en que se aprueba el pago (mismo criterio que la web).
+ * Aviso de renovacion o cambio (#Libs/plan_change.js, mismas reglas que la web): renovar el
+ * mismo plan vigente arranca cuando termine; cambiar a un plan que no reduce el acceso rige
+ * desde hoy y suma los dias que quedaban (`upgrade_now`, `new_end_date`); un cambio que lo
+ * reduce no se admite mientras el actual siga vigente (`blocked_message`).
  */
-const renewalPreview = (current, plan) => {
+const renewalPreview = (current, plan, proration = null) => {
     if (!current?.name) return null;
     const end = current.end_date ? new Date(current.end_date) : null;
-    const running = hasActiveSuscription({ suscription: current }) && end !== null && end > new Date();
+    const running = hasActiveSuscription({ suscription: current }) && Boolean(runningEnd(current));
+    const samePlan = current.name === plan.name;
+    const upgradeNow = isImmediateUpgrade(current, plan);
+    const period = periodFor({ transactionType: samePlan ? 'Renovar' : 'Actualizar', current, plan, prorated: Boolean(proration) });
     return {
         current_plan: current.name,
-        same_plan: current.name === plan.name,
+        same_plan: samePlan,
         running,
+        upgrade_now: upgradeNow,
         current_end_date: iso(end),
-        starts_at: running ? iso(end) : null,
+        starts_at: running && !upgradeNow ? iso(end) : null,
+        new_end_date: iso(period.end),
+        blocked_message: planChangeBlockMessage(planChangeBlock(current, plan), limaDate),
+        // Institucional -> plan general: se cobra la diferencia (#Libs/plan_change.js).
+        prorated: Boolean(proration),
+        credit: proration?.credit ?? 0,
+        remaining_days: proration?.remaining_days ?? null,
     };
+};
+
+/**
+ * Cuanto se paga por `plan` con la suscripcion `current`: el precio, o la diferencia al pasar
+ * de un Institucional vigente a un plan general (#Libs/plan_change.js, mismo calculo que la
+ * web). El plan actual se busca por nombre solo cuando puede haber descuento. Lo usan el
+ * detalle (`amount_due`) y el pago (monto cobrado y esperado en el comprobante).
+ */
+const quoteFor = async (current, plan) => {
+    const price = Number(plan.price) || 0;
+    if (!runningEnd(current) || !current.restricted_to_institution || plan.restricted_to_institution) {
+        return { amount: price, proration: null };
+    }
+    const currentPlan = await SuscriptionModel.findOne({ name: current.name }, { price: 1, duration_months: 1, duration_days: 1 }).lean().exec();
+    const proration = prorationFor({ current, currentPlan, plan });
+    return { amount: proration?.amount ?? price, proration };
 };
 
 export const getPlan = async ({ slug, user }) => {
@@ -155,9 +187,10 @@ export const getPlan = async ({ slug, user }) => {
     const plan = decoratePlans((await loadPlans()).filter((entry) => isVisibleTo(entry, tab)), { currentPlanName: user?.suscription?.name ?? null })
         .find((entry) => entry.slug === slug) ?? { ...visible, per_month: null, best_value: false, is_current: false };
 
-    const [institutions, pending] = await Promise.all([
+    const [institutions, pending, quote] = await Promise.all([
         plan.restricted_to_institution ? listEligibleInstitutions() : null,
         user ? pendingPaymentOf(user) : null,
+        quoteFor(user?.suscription, plan),
     ]);
 
     return {
@@ -166,7 +199,9 @@ export const getPlan = async ({ slug, user }) => {
         institutions,
         min_exams_institution: plan.restricted_to_institution ? MIN_EXAMS_INSTITUTION : null,
         pending_payment: pending ? await serializePayment(pending) : null,
-        renewal: user ? renewalPreview(user.suscription, plan) : null,
+        renewal: user ? renewalPreview(user.suscription, plan, quote.proration) : null,
+        // Lo que se paga ahora: `price`, o la diferencia en una mejora con descuento.
+        amount_due: quote.amount,
     };
 };
 
@@ -191,6 +226,8 @@ const serializePayment = async (payment, plan = null) => {
         currency: CURRENCY,
         payment_method: payment.payment_method ?? null,
         transaction_type: payment.transaction_type ?? null,
+        // Mejora cobrando la diferencia: { from_plan, remaining_days, regular_price, credit, amount }.
+        proration: payment.proration ?? null,
         institution_id: payment.institution_id ?? null,
         // Motivo del rechazo que escribe el administrador. `status_reason` es interno.
         reason: state === 'rejected' ? payment.message ?? null : null,
@@ -232,6 +269,10 @@ const createPayment = async ({ req, user, plan, body, capture }) => {
     if (!capture) throw ApiError.validation([{ field: 'payment_proof', message: 'Sube la captura de tu pago para continuar.' }]);
 
     const institutionId = await resolveInstitution(plan, user, body.institution_id);
+    // Un plan que reduce el acceso vigente (general -> institucional, u otra institucion) le
+    // quitaria hoy lo que ya pago: se rechaza hasta que termine (#Libs/plan_change.js).
+    const block = planChangeBlock(user.suscription, plan, institutionId);
+    if (block) throw ApiError.planChangeBlocked(planChangeBlockMessage(block, limaDate));
     const previous = user.suscription?.name ?? null;
     const transactionType = !previous ? 'Compra' : previous === plan.name ? 'Renovar' : 'Actualizar';
 
@@ -249,9 +290,18 @@ const createPayment = async ({ req, user, plan, body, capture }) => {
             throw ApiError.renewalAlreadyQueued();
         }
 
-        const verification = await verifyVoucher(capture, Number(plan.price) || 0);
+        // El monto lo decide el servidor: el precio o, en una mejora con descuento, la diferencia.
+        let quote = await quoteFor(user.suscription, plan);
+        // Con descuento tambien vale el precio completo (version de la app que aun no muestra la
+        // diferencia): entonces se registra como mejora sin descuento y se suman los dias.
+        const verification = await verifyVoucher(capture, quote.amount, {
+            alternatives: quote.proration ? [Number(plan.price) || 0] : [],
+        });
+        if (quote.proration && verification.approved && verification.matchedAmount !== quote.amount) {
+            quote = { amount: Number(plan.price) || 0, proration: null };
+        }
         try {
-            return await registerPayment({ req, user, plan, body, capture, institutionId, transactionType, previous, verification });
+            return await registerPayment({ req, user, plan, body, capture, institutionId, transactionType, previous, verification, quote });
         } finally {
             await verification.release();
         }
@@ -260,7 +310,7 @@ const createPayment = async ({ req, user, plan, body, capture }) => {
     }
 };
 
-const registerPayment = async ({ req, user, plan, body, capture, institutionId, transactionType, previous, verification }) => {
+const registerPayment = async ({ req, user, plan, body, capture, institutionId, transactionType, previous, verification, quote }) => {
     const { aiData, approved, reason } = verification;
 
     const paymentCapture = await saveCapture(capture, { target: 'subscription', field: 'payment_proof' });
@@ -273,7 +323,9 @@ const registerPayment = async ({ req, user, plan, body, capture, institutionId, 
             subscription_id: plan._id,
             institution_id: institutionId ?? undefined,
             // El precio vigente se congela en el pago.
-            amount: plan.price,
+            amount: quote?.amount ?? plan.price,
+            // Mejora con descuento: constancia del calculo; la activacion corre el plan desde hoy.
+            ...(quote?.proration ? { proration: quote.proration } : {}),
             payment_method: PAYMENT_METHODS[body.payment_method ?? 'yape'],
             status: 'Pendiente',
             status_reason: approved ? undefined : reason,
